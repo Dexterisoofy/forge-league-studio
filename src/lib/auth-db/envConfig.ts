@@ -22,9 +22,16 @@ function readEnv(key: string): string {
   }
 }
 
+export function normalizeSupabaseUrl(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/, '');
+}
+
 export function getBackendConfig(): BackendEnvConfig {
   const rawProvider = readEnv('VITE_BACKEND_PROVIDER').toLowerCase();
-  const supabaseUrl = readEnv('VITE_SUPABASE_URL');
+  const supabaseUrl = normalizeSupabaseUrl(readEnv('VITE_SUPABASE_URL'));
   const supabaseAnonKey = readEnv('VITE_SUPABASE_ANON_KEY');
   const firebaseApiKey = readEnv('VITE_FIREBASE_API_KEY');
   const firebaseProjectId = readEnv('VITE_FIREBASE_PROJECT_ID');

@@ -45,6 +45,7 @@ export const AuthModal: React.FC = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   if (!authModalOpen) return null;
@@ -52,6 +53,7 @@ export const AuthModal: React.FC = () => {
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const profile = isSignUp
@@ -68,10 +70,15 @@ export const AuthModal: React.FC = () => {
   const handleGoogle = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const profile = await signInWithGoogle(googleEmail);
-      handleUserAuthenticated(profile);
+      if (profile) {
+        handleUserAuthenticated(profile);
+      } else {
+        setNotice('Redirecting to Google sign-in...');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Google sign-in failed');
     } finally {
@@ -114,10 +121,16 @@ export const AuthModal: React.FC = () => {
   const handleMagicLink = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const profile = await sendMagicLink(email);
-      handleUserAuthenticated(profile);
+      if (profile) {
+        handleUserAuthenticated(profile);
+      } else {
+        setNotice(`Magic link sent to ${email}! Open your email and click the link to sign in.`);
+        showToast('Magic link sent — check your email');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Magic link failed');
     } finally {
@@ -234,6 +247,12 @@ export const AuthModal: React.FC = () => {
         {error && (
           <div className="rounded-lg border border-rose-500/40 bg-rose-500/15 px-3 py-2 text-xs text-rose-200">
             {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs text-emerald-200">
+            {notice}
           </div>
         )}
 

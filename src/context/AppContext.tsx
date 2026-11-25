@@ -30,11 +30,17 @@ import {
 import { computeLogoDna } from '../engine/svg-logo/logoDna';
 import {
   createDefaultShareMetadata,
+  fetchAccessibleCloudResources,
+  fetchCompetitionBySlugFromSupabase,
+  fetchSportBySlugFromSupabase,
   getCloudStatus,
   getCurrentUser,
   loadUserCloudData,
   parseShareHashRoute,
   signOutUser,
+  subscribeSupabaseAuth,
+  syncCompetitionToSupabase,
+  syncSportToSupabase,
   syncUserCloudData,
   type BackendProvider,
 } from '../lib/auth-db';
@@ -322,6 +328,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [user, vault, competitions, customSports, registry]);
 
+  // Hydrate Supabase OAuth / Magic Link sessions + pull shared cloud competitions & sports
+  useEffect(() => {
+    return subscribeSupabaseAuth((profile) => {
+      setUser(profile);
+      if (!profile || profile.isGuest) return;
+      void fetchAccessibleCloudResources().then(({ competitions: cloudComps, customSports: cloudSports }) => {
+        if (cloudSports.length > 0) {
+          setCustomSports((prev) => {
+            const byId = new Map(prev.map((s) => [s.id, s]));
+            for (const s of cloudSports) byId.set(s.id, s);
+            return Array.from(byId.values());
+          });
+        }
+        if (cloudComps.length > 0) {
+          setCompetitions((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            for (const c of cloudComps) byId.set(c.id, c);
+            return Array.from(byId.values());
+          });
+        }
+      });
+    });
+  }, []);
+
+  // Fetch shared competition or custom sport from Supabase when opened via share link
+  useEffect(() => {
+    if (!sharedRoute) return;
+    if (sharedRoute.kind === 'league') {
+      const existsLocally = competitions.some(
+        (c) => c.sharing?.slug.toLowerCase() === sharedRoute.slug
+      );
+      if (!existsLocally) {
+        void fetchCompetitionBySlugFromSupabase(sharedRoute.slug).then((remote) => {
+          if (!remote) return;
+          setCompetitions((prev) =>
+            prev.some((c) => c.id === remote.id)
+              ? prev.map((c) => (c.id === remote.id ? remote : c))
+              : [remote, ...prev]
+          );
+        });
+      }
+    } else if (sharedRoute.kind === 'sport') {
+      const existsLocally = [...customSports, ...SHOWCASE_COMMUNITY_SPORTS].some(
+        (s) => s.sharing?.slug.toLowerCase() === sharedRoute.slug
+      );
+      if (!existsLocally) {
+        void fetchSportBySlugFromSupabase(sharedRoute.slug).then((remote) => {
+          if (!remote) return;
+          setCustomSports((prev) =>
+            prev.some((s) => s.id === remote.id)
+              ? prev.map((s) => (s.id === remote.id ? remote : s))
+              : [remote, ...prev]
+          );
+        });
+      }
+    }
+  }, [sharedRoute, competitions, customSports]);
+
   const handleUserAuthenticated = useCallback(
     (profile: UserProfile) => {
       setUser(profile);
@@ -418,6 +482,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return [normalized, ...prev];
       });
+      if (user && !user.isGuest) {
+        void syncSportToSupabase(normalized, user.id);
+      }
       setActiveSportId(normalized.id);
       showToast(`Saved custom sport "${normalized.name}"`);
     },
@@ -581,14 +648,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         history: comp.history ?? [],
       };
       setCompetitions((prev) => [owned, ...prev]);
+      if (user && !user.isGuest) {
+        void syncCompetitionToSupabase(owned, user.id);
+      }
       showToast(`Created ${owned.type === 'league' ? 'League' : 'Cup'}: ${owned.name}`);
     },
     [user, showToast]
   );
 
-  const updateCompetition = useCallback((comp: Competition) => {
-    setCompetitions((prev) => prev.map((c) => (c.id === comp.id ? comp : c)));
-  }, []);
+  const updateCompetition = useCallback(
+    (comp: Competition) => {
+      setCompetitions((prev) => prev.map((c) => (c.id === comp.id ? comp : c)));
+      if (user && !user.isGuest) {
+        void syncCompetitionToSupabase(comp, user.id);
+      }
+    },
+    [user]
+  );
 
   const deleteCompetition = useCallback(
     (compId: string) => {
@@ -635,17 +711,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (importedSports.length > 0) {
         setCustomSports((prev) => {
-          const existingIds = new Set(prev.map((s) => s.id));
           const merged = [...prev];
           for (const s of importedSports) {
-            if (!existingIds.has(s.id)) {
-              merged.unshift({
-                ...s,
-                isBuiltIn: false,
-                ownerId: user?.id,
-                ownerName: user?.displayName,
-                sharing: s.sharing ?? createDefaultShareMetadata(),
-              });
+            const normalizedSport: SportDefinition = {
+              ...s,
+              isBuiltIn: false,
+              ownerId: s.ownerId ?? user?.id,
+              ownerName: s.ownerName ?? user?.displayName,
+              sharing: s.sharing ?? createDefaultShareMetadata(),
+            };
+            const existingIdx = merged.findIndex((p) => p.id === s.id);
+            if (existingIdx >= 0) {
+              merged[existingIdx] = normalizedSport;
+              sportsAdded++;
+            } else {
+              merged.unshift(normalizedSport);
               sportsAdded++;
             }
           }
@@ -686,15 +766,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (importedComps.length > 0) {
         setCompetitions((prev) => {
-          const existingIds = new Set(prev.map((c) => c.id));
           const merged = [...prev];
           for (const c of importedComps) {
-            if (!existingIds.has(c.id)) {
-              merged.unshift({
-                ...c,
-                sharing: c.sharing ?? createDefaultShareMetadata(),
-                history: c.history ?? [],
-              });
+            const normalizedComp: Competition = {
+              ...c,
+              sharing: c.sharing ?? createDefaultShareMetadata(),
+              history: c.history ?? [],
+            };
+            const existingIdx = merged.findIndex((p) => p.id === c.id);
+            if (existingIdx >= 0) {
+              merged[existingIdx] = normalizedComp;
+              compsAdded++;
+            } else {
+              merged.unshift(normalizedComp);
               compsAdded++;
             }
           }

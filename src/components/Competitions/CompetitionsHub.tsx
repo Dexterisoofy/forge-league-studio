@@ -37,6 +37,7 @@ export const CompetitionsHub: React.FC = () => {
     deleteCompetition,
     getSport,
     user,
+    setAuthModalOpen,
     sharedRoute,
     clearSharedRoute,
     showToast,
@@ -79,24 +80,38 @@ export const CompetitionsHub: React.FC = () => {
 
     if (!perms.canView) {
       return (
-        <div className="rounded-2xl border border-rose-500/40 bg-[#131b2c] p-10 text-center space-y-3">
+        <div className="rounded-2xl border border-rose-500/40 bg-[#131b2c] p-10 text-center space-y-4">
           <Lock className="mx-auto h-10 w-10 text-rose-400" />
           <h3 className="font-display text-2xl font-bold text-white uppercase">
             Private Competition
           </h3>
-          <p className="text-sm text-slate-400">
-            You do not have access to view &ldquo;{activeComp.name}&rdquo;. Ask the owner to invite your Email, Google account, Phone, or Username.
+          <p className="text-sm text-slate-400 max-w-lg mx-auto">
+            You do not have access to view &ldquo;{activeComp.name}&rdquo;. Ask the owner to invite your Email, Google account, Phone, or Username — or re-import an updated JSON after permissions are saved.
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedId(null);
-              clearSharedRoute();
-            }}
-            className="rounded-xl bg-slate-800 px-4 py-2 text-xs font-semibold text-white cursor-pointer"
-          >
-            Back to Competitions
-          </button>
+          <p className="text-xs text-slate-500">
+            {user
+              ? `Currently signed in as: ${user.email || user.phone || user.username || user.displayName}`
+              : 'Currently not signed in (Guest mode).'}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setAuthModalOpen(true)}
+              className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 cursor-pointer"
+            >
+              {user ? 'Switch Account / Link Email' : 'Sign In to View'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedId(null);
+                clearSharedRoute();
+              }}
+              className="rounded-xl bg-slate-800 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
+            >
+              Back to Competitions
+            </button>
+          </div>
         </div>
       );
     }

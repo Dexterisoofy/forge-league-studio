@@ -29,7 +29,7 @@ import {
   DEFAULT_COMPETITION_RULES,
   DEFAULT_SCHEDULE_CONFIG,
 } from '../engine/simulation/scheduler';
-import { getBackendConfig } from '../lib/auth-db/envConfig';
+import { getBackendConfig, normalizeSupabaseUrl } from '../lib/auth-db/envConfig';
 import {
   DEFAULT_OWNER_PERMISSIONS,
   NO_PERMISSIONS,
@@ -635,6 +635,28 @@ describe('Simulation History, Granular Permissions, Sharing & Env Config', () =>
     // Private resource grants no access to uninvited users
     expect(resolveUserPermissions(ownedResource, strangerUser)).toEqual(NO_PERMISSIONS);
 
+    // Collaborator matching handles leading @ on username and displayName
+    const handleResource = {
+      ownerId: ownerUser.id,
+      sharing: {
+        slug: 'handle-test',
+        isCustomSlug: true,
+        visibility: 'private' as const,
+        collaborators: [
+          {
+            id: 'collab-2',
+            identifier: '@simop',
+            identifierType: 'username' as const,
+            status: 'active' as const,
+            rolePreset: 'viewer' as const,
+            permissions: { ...ROLE_PRESETS.viewer },
+            invitedAt: '2026-01-02T00:00:00Z',
+          },
+        ],
+      },
+    };
+    expect(resolveUserPermissions(handleResource, simOperatorUser)).toEqual(ROLE_PRESETS.viewer);
+
     // Unlisted or public grants viewer permissions to non-collaborators
     const publicResource = {
       ...ownedResource,
@@ -692,6 +714,11 @@ describe('Simulation History, Granular Permissions, Sharing & Env Config', () =>
     expect(cfg.provider).toBe('local');
     expect(cfg.supabaseUrl).toBe('');
     expect(cfg.firebaseApiKey).toBe('');
+
+    expect(normalizeSupabaseUrl('https://abc.supabase.co/rest/v1/')).toBe(
+      'https://abc.supabase.co'
+    );
+    expect(normalizeSupabaseUrl('https://abc.supabase.co/')).toBe('https://abc.supabase.co');
   });
 
   it('supports negative penalty points and startingScore deduction sports', () => {

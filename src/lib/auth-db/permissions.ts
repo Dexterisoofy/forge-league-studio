@@ -80,7 +80,7 @@ export const PERMISSION_LABELS: {
 ];
 
 function normalizeIdentifier(val: string): string {
-  return val.trim().toLowerCase().replace(/\s+/g, '');
+  return val.trim().toLowerCase().replace(/^@+/, '').replace(/\s+/g, '');
 }
 
 export function matchesCollaborator(
@@ -93,6 +93,7 @@ export function matchesCollaborator(
   if (user.email && normalizeIdentifier(user.email) === target) return true;
   if (user.phone && normalizeIdentifier(user.phone) === target) return true;
   if (user.username && normalizeIdentifier(user.username) === target) return true;
+  if (user.displayName && normalizeIdentifier(user.displayName) === target) return true;
   return false;
 }
 
