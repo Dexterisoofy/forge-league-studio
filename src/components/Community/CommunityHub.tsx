@@ -11,17 +11,20 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { buildJerseySvgString } from '../../engine/sports/jerseySvg';
-import { buildShareUrl } from '../../lib/auth-db';
+import { buildShareUrl, resolveUserPermissions } from '../../lib/auth-db';
 import { LogoSvg } from '../common/LogoSvg';
 
 export const CommunityHub: React.FC = () => {
   const {
+    allSports,
     communitySports,
     competitions,
     cloneCommunitySport,
     setActiveTab,
     sharedRoute,
+    openSharedRoute,
     clearSharedRoute,
+    user,
     showToast,
   } = useApp();
 
@@ -32,13 +35,20 @@ export const CommunityHub: React.FC = () => {
     (c) => c.sharing?.visibility === 'public'
   );
 
-  // If user arrived via #/sport/<slug>, highlight that sport
+  // Resolve #/sport/<slug> or /sport/<slug> across public, unlisted, and user's own custom sports
+  const searchableSports = [
+    ...allSports.filter((s) => !s.isBuiltIn),
+    ...communitySports,
+  ];
   const sharedSport =
     sharedRoute?.kind === 'sport'
-      ? communitySports.find(
+      ? searchableSports.find(
           (s) => s.sharing?.slug.toLowerCase() === sharedRoute.slug
         )
       : undefined;
+  const sharedSportAllowed = sharedSport
+    ? resolveUserPermissions(sharedSport, user).canView
+    : false;
 
   const q = query.trim().toLowerCase();
   const filteredSports = communitySports.filter(
@@ -109,7 +119,7 @@ export const CommunityHub: React.FC = () => {
       </div>
 
       {/* Highlighted Shared Sport Link Banner */}
-      {sharedSport && (
+      {sharedRoute?.kind === 'sport' && sharedSport && sharedSportAllowed && (
         <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-sky-500/40 bg-sky-500/10 p-5">
           <div className="flex items-center gap-3">
             <Sparkles className="h-6 w-6 text-sky-400" />
@@ -146,6 +156,46 @@ export const CommunityHub: React.FC = () => {
               Dismiss
             </button>
           </div>
+        </div>
+      )}
+
+      {sharedRoute?.kind === 'sport' && sharedSport && !sharedSportAllowed && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-5">
+          <div>
+            <div className="text-xs font-bold tracking-wider text-rose-300 uppercase">
+              Private Shared Sport (/sport/{sharedRoute.slug})
+            </div>
+            <p className="text-sm text-slate-200 mt-1">
+              You do not have permission to view this private sport. Sign in with an invited account or ask the creator to set visibility to Unlisted or Public.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={clearSharedRoute}
+            className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {sharedRoute?.kind === 'sport' && !sharedSport && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-5">
+          <div>
+            <div className="text-xs font-bold tracking-wider text-amber-300 uppercase">
+              Shared Sport Not Found (/sport/{sharedRoute.slug})
+            </div>
+            <p className="text-xs text-slate-300 mt-1">
+              This sport link was not found in local browser storage. If it was created on another browser in Local Guest mode, export/import its JSON file or connect Supabase cloud sync to share across devices.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={clearSharedRoute}
+            className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -268,7 +318,9 @@ export const CommunityHub: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      window.location.hash = `#/l/${comp.sharing?.slug}`;
+                      if (comp.sharing?.slug) {
+                        openSharedRoute('league', comp.sharing.slug);
+                      }
                     }}
                     className="w-full rounded-xl bg-slate-800 py-2 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
                   >

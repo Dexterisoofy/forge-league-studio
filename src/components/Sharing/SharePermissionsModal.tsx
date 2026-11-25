@@ -79,9 +79,12 @@ export const SharePermissionsModal: React.FC<SharePermissionsModalProps> = ({
   const shareUrl = buildShareUrl(kind, slugValid ? cleanedSlug : draft.slug);
 
   const handleCopyUrl = () => {
+    if (canManageCollaborators && slugValid) {
+      onSave({ ...draft, slug: cleanedSlug });
+    }
     navigator.clipboard?.writeText(shareUrl);
     setCopied(true);
-    showToast('Shareable link copied to clipboard');
+    showToast('Shareable link saved & copied to clipboard');
     setTimeout(() => setCopied(false), 1800);
   };
 

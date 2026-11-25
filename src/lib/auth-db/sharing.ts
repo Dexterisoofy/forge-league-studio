@@ -63,12 +63,22 @@ export function buildShareUrl(kind: 'league' | 'sport', slug: string): string {
 }
 
 export function parseShareHashRoute(
-  hash: string
+  hash: string,
+  pathname = ''
 ): { kind: 'league' | 'sport'; slug: string } | null {
-  const cleaned = hash.replace(/^#\/?/, '');
-  const parts = cleaned.split('/').filter(Boolean);
-  if (parts.length < 2) return null;
-  if (parts[0] === 'l') return { kind: 'league', slug: parts[1].toLowerCase() };
-  if (parts[0] === 'sport') return { kind: 'sport', slug: parts[1].toLowerCase() };
-  return null;
+  const fromSegment = (raw: string): { kind: 'league' | 'sport'; slug: string } | null => {
+    const cleaned = raw.replace(/^[#/]+/, '');
+    const parts = cleaned.split('/').filter(Boolean);
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (parts[i] === 'l' && parts[i + 1]) {
+        return { kind: 'league', slug: decodeURIComponent(parts[i + 1]).toLowerCase() };
+      }
+      if (parts[i] === 'sport' && parts[i + 1]) {
+        return { kind: 'sport', slug: decodeURIComponent(parts[i + 1]).toLowerCase() };
+      }
+    }
+    return null;
+  };
+
+  return (hash ? fromSegment(hash) : null) ?? (pathname ? fromSegment(pathname) : null);
 }

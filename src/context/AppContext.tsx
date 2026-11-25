@@ -136,6 +136,7 @@ interface AppContextValue {
   handleUserAuthenticated: (profile: UserProfile) => void;
   handleSignOut: () => Promise<void>;
   sharedRoute: { kind: 'league' | 'sport'; slug: string } | null;
+  openSharedRoute: (kind: 'league' | 'sport', slug: string) => void;
   clearSharedRoute: () => void;
   communitySports: SportDefinition[];
   cloneCommunitySport: (sport: SportDefinition) => SportDefinition;
@@ -183,7 +184,16 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [activeTab, setActiveTab] = useState<AppTab>('studio');
+  const initialSharedRoute =
+    typeof window !== 'undefined'
+      ? parseShareHashRoute(window.location.hash, window.location.pathname)
+      : null;
+
+  const [activeTab, setActiveTab] = useState<AppTab>(() => {
+    if (initialSharedRoute?.kind === 'league') return 'competitions';
+    if (initialSharedRoute?.kind === 'sport') return 'community';
+    return 'studio';
+  });
   const [user, setUser] = useState<UserProfile | null>(() => getCurrentUser());
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const cloudStatus = useMemo(() => getCloudStatus(), []);
@@ -196,29 +206,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [locks, setLocks] = useState<TeamLocks>(DEFAULT_LOCKS);
   const [lastCollisionsAvoided, setLastCollisionsAvoided] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
-  const [sharedRoute, setSharedRoute] = useState<{ kind: 'league' | 'sport'; slug: string } | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return parseShareHashRoute(window.location.hash);
-  });
+  const [sharedRoute, setSharedRoute] = useState<{ kind: 'league' | 'sport'; slug: string } | null>(
+    initialSharedRoute
+  );
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const onHashChange = () => {
-      const parsed = parseShareHashRoute(window.location.hash);
+    const syncRouteFromLocation = () => {
+      const parsed = parseShareHashRoute(window.location.hash, window.location.pathname);
       if (parsed) {
         setSharedRoute(parsed);
         if (parsed.kind === 'league') setActiveTab('competitions');
         if (parsed.kind === 'sport') setActiveTab('community');
       }
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    window.addEventListener('hashchange', syncRouteFromLocation);
+    window.addEventListener('popstate', syncRouteFromLocation);
+    return () => {
+      window.removeEventListener('hashchange', syncRouteFromLocation);
+      window.removeEventListener('popstate', syncRouteFromLocation);
+    };
+  }, []);
+
+  const openSharedRoute = useCallback((kind: 'league' | 'sport', slug: string) => {
+    const clean = slug.trim().toLowerCase();
+    if (!clean) return;
+    setSharedRoute({ kind, slug: clean });
+    setActiveTab(kind === 'league' ? 'competitions' : 'community');
+    if (typeof window !== 'undefined') {
+      const prefix = kind === 'league' ? 'l' : 'sport';
+      window.location.hash = `#/${prefix}/${clean}`;
+    }
   }, []);
 
   const clearSharedRoute = useCallback(() => {
     setSharedRoute(null);
-    if (typeof window !== 'undefined' && window.location.hash) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (typeof window !== 'undefined') {
+      const hasSharePath = Boolean(parseShareHashRoute('', window.location.pathname));
+      const cleanPath = hasSharePath ? '/' : window.location.pathname;
+      if (window.location.hash || hasSharePath) {
+        window.history.replaceState(null, '', cleanPath + window.location.search);
+      }
     }
   }, []);
 
@@ -699,6 +727,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         handleUserAuthenticated,
         handleSignOut,
         sharedRoute,
+        openSharedRoute,
         clearSharedRoute,
         communitySports,
         cloneCommunitySport,

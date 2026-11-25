@@ -657,6 +657,14 @@ describe('Simulation History, Granular Permissions, Sharing & Env Config', () =>
       kind: 'sport',
       slug: 'hyperball-2026',
     });
+    expect(parseShareHashRoute('', '/l/friday-night-premier')).toEqual({
+      kind: 'league',
+      slug: 'friday-night-premier',
+    });
+    expect(parseShareHashRoute('', '/sport/hyperball-2026')).toEqual({
+      kind: 'sport',
+      slug: 'hyperball-2026',
+    });
     expect(parseShareHashRoute('#/invalid')).toBeNull();
 
     const { teams } = makeUniqueTeams(4);

@@ -201,6 +201,26 @@ export const CompetitionsHub: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {sharedRoute?.kind === 'league' && !sharedComp && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4">
+          <div>
+            <div className="text-xs font-bold tracking-wider text-amber-300 uppercase">
+              Shared Competition Not Found (/l/{sharedRoute.slug})
+            </div>
+            <p className="text-xs text-slate-300 mt-1">
+              This competition link is not present in local browser storage. If it was created on another device in Local Guest mode, export/import its JSON file or enable Supabase cloud sync.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={clearSharedRoute}
+            className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-800 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-[#131b2c] p-5">
         <div>
           <h2 className="font-display text-2xl font-extrabold tracking-wide text-white uppercase">
