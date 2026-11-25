@@ -630,13 +630,34 @@ export function simulateCupScore(
       -0.15,
       Math.min(0.15, (homeTeam.overallRating - awayTeam.overallRating) / 100)
     );
-  const bump = sport.scoringEvents[0]?.points ?? 1;
+  const lowestScoreWins = Boolean(rules.lowestScoreWins || sport.lowestScoreWins);
+
+  // Zero-play sports always resolve ties via shootout / tiebreaker without mutating score
+  if (sport.scoringEvents.length === 0) {
+    const penaltyWinnerId = Math.random() < homeProb ? homeTeam.id : awayTeam.id;
+    return {
+      homeScore,
+      awayScore,
+      penaltyWinnerId,
+      resolutionNote: 'PENS',
+      isOvertime: true,
+      scoringSummary,
+      preApplied: mods.preApplied,
+    };
+  }
+
+  const nonZeroEv = sport.scoringEvents.find((e) => e.points !== 0);
+  const rawBump = Math.abs(nonZeroEv?.points ?? 1);
 
   if (rules.overtimeRule === 'golden-goal') {
     const homeWins = Math.random() < homeProb;
     return {
-      homeScore: homeWins ? homeScore + bump : homeScore,
-      awayScore: homeWins ? awayScore : awayScore + bump,
+      homeScore: lowestScoreWins
+        ? homeWins ? homeScore : homeScore + rawBump
+        : homeWins ? homeScore + rawBump : homeScore,
+      awayScore: lowestScoreWins
+        ? homeWins ? awayScore + rawBump : awayScore
+        : homeWins ? awayScore : awayScore + rawBump,
       penaltyWinnerId: null,
       resolutionNote: 'GG',
       isOvertime: true,
@@ -651,8 +672,12 @@ export function simulateCupScore(
   ) {
     const homeWins = Math.random() < homeProb;
     return {
-      homeScore: homeWins ? homeScore + bump : homeScore,
-      awayScore: homeWins ? awayScore : awayScore + bump,
+      homeScore: lowestScoreWins
+        ? homeWins ? homeScore : homeScore + rawBump
+        : homeWins ? homeScore + rawBump : homeScore,
+      awayScore: lowestScoreWins
+        ? homeWins ? awayScore + rawBump : awayScore
+        : homeWins ? awayScore : awayScore + rawBump,
       penaltyWinnerId: null,
       resolutionNote: rules.overtimeRule === 'overtime-periods' ? 'OT' : 'AET',
       isOvertime: true,
@@ -707,12 +732,16 @@ export function advanceCupWinner(
   const target = matches.find((m) => m.id === matchId);
   if (!target || !target.homeTeamId || !target.awayTeamId) return competition;
 
+  const lowestScoreWins = Boolean(competition.rules.lowestScoreWins || sport.lowestScoreWins);
   let winnerId: string;
   let loserId: string;
-  if (homeScore > awayScore) {
+  const homeBetter = lowestScoreWins ? homeScore < awayScore : homeScore > awayScore;
+  const awayBetter = lowestScoreWins ? awayScore < homeScore : awayScore > homeScore;
+
+  if (homeBetter) {
     winnerId = target.homeTeamId;
     loserId = target.awayTeamId;
-  } else if (awayScore > homeScore) {
+  } else if (awayBetter) {
     winnerId = target.awayTeamId;
     loserId = target.homeTeamId;
   } else if (

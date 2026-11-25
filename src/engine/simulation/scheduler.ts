@@ -30,6 +30,7 @@ export function buildDefaultRulesForSport(
     tiebreakers: [...sport.defaultRules.tiebreakers],
     overtimeRule: sport.defaultRules.overtimeRule,
     homeFieldAdvantage: true,
+    lowestScoreWins: Boolean(sport.lowestScoreWins),
   };
 }
 

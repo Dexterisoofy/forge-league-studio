@@ -200,6 +200,7 @@ export function simulateLeagueScore(
 
   let isOvertime = false;
   let resolutionNote: string | null = null;
+  const lowestScoreWins = Boolean(competition?.rules?.lowestScoreWins || sport.lowestScoreWins);
   const drawsAllowed =
     competition?.rules?.overtimeRule === 'draws-allowed'
       ? true
@@ -209,13 +210,18 @@ export function simulateLeagueScore(
   if (homeScore === awayScore && !drawsAllowed) {
     isOvertime = true;
     const homeBias = 0.5 + Math.max(-0.12, Math.min(0.12, (homeTeam.overallRating - awayTeam.overallRating) / 100));
-    const bump = sport.scoringEvents[0]?.points ?? 1;
-    if (Math.random() < homeBias) {
-      homeScore += bump;
+    const nonZeroEv = sport.scoringEvents.find((e) => e.points !== 0);
+    const rawBump = Math.abs(nonZeroEv?.points ?? 1);
+    const homeWinsOt = Math.random() < homeBias;
+    if (lowestScoreWins) {
+      // Lower score wins, so the loser takes the tiebreaker penalty
+      if (homeWinsOt) awayScore += rawBump;
+      else homeScore += rawBump;
     } else {
-      awayScore += bump;
+      if (homeWinsOt) homeScore += rawBump;
+      else awayScore += rawBump;
     }
-    resolutionNote = 'OT';
+    resolutionNote = sport.scoringEvents.length === 0 ? 'PENS' : 'OT';
   }
 
   return {
@@ -228,6 +234,16 @@ export function simulateLeagueScore(
   };
 }
 
+function compareMatchScores(
+  scoreA: number,
+  scoreB: number,
+  lowestScoreWins = false
+): 1 | -1 | 0 {
+  if (scoreA === scoreB) return 0;
+  if (lowestScoreWins) return scoreA < scoreB ? 1 : -1;
+  return scoreA > scoreB ? 1 : -1;
+}
+
 function computeHeadToHeadPoints(
   teamA: string,
   teamB: string,
@@ -238,6 +254,7 @@ function computeHeadToHeadPoints(
   let ptsB = 0;
   let gdA = 0;
   let gdB = 0;
+  const lowestScoreWins = Boolean(rules.lowestScoreWins);
 
   for (const m of playedMatches) {
     if (
@@ -249,12 +266,13 @@ function computeHeadToHeadPoints(
       const aIsHome = m.homeTeamId === teamA;
       const aGoals = aIsHome ? hs : as;
       const bGoals = aIsHome ? as : hs;
-      gdA += aGoals - bGoals;
-      gdB += bGoals - aGoals;
-      if (aGoals > bGoals) {
+      gdA += lowestScoreWins ? bGoals - aGoals : aGoals - bGoals;
+      gdB += lowestScoreWins ? aGoals - bGoals : bGoals - aGoals;
+      const cmp = compareMatchScores(aGoals, bGoals, lowestScoreWins);
+      if (cmp > 0) {
         ptsA += m.isOvertime ? rules.pointsOtWin : rules.pointsWin;
         ptsB += m.isOvertime ? rules.pointsOtLoss : rules.pointsLoss;
-      } else if (bGoals > aGoals) {
+      } else if (cmp < 0) {
         ptsB += m.isOvertime ? rules.pointsOtWin : rules.pointsWin;
         ptsA += m.isOvertime ? rules.pointsOtLoss : rules.pointsLoss;
       } else {
@@ -313,6 +331,8 @@ export function computeStandings(
     )
     .sort((a, b) => a.round - b.round);
 
+  const lowestScoreWins = Boolean(rules.lowestScoreWins);
+
   for (const m of playedMatches) {
     const home = map.get(m.homeTeamId!);
     const away = map.get(m.awayTeamId!);
@@ -329,7 +349,8 @@ export function computeStandings(
     away.gf += as;
     away.ga += hs;
 
-    if (hs > as) {
+    const cmp = compareMatchScores(hs, as, lowestScoreWins);
+    if (cmp > 0) {
       if (isOt) {
         home.otWon += 1;
         away.otLost += 1;
@@ -343,7 +364,7 @@ export function computeStandings(
       }
       home.form.push('W');
       away.form.push('L');
-    } else if (as > hs) {
+    } else if (cmp < 0) {
       if (isOt) {
         away.otWon += 1;
         home.otLost += 1;
@@ -400,7 +421,7 @@ export function computeStandings(
     const totalGames = r.played + r.bonusWins;
     return {
       ...r,
-      gd: r.gf - r.ga,
+      gd: lowestScoreWins ? r.ga - r.gf : r.gf - r.ga,
       winPct: totalGames > 0 ? (totalWins + r.drawn * 0.5) / totalGames : 0,
       form: r.form.slice(-5),
     };
@@ -414,7 +435,7 @@ export function computeStandings(
     } else if (winnerCriterion === 'goal-diff') {
       if (b.gd !== a.gd) return b.gd - a.gd;
     } else if (winnerCriterion === 'goals-for') {
-      if (b.gf !== a.gf) return b.gf - a.gf;
+      if (b.gf !== a.gf) return lowestScoreWins ? a.gf - b.gf : b.gf - a.gf;
     } else if (winnerCriterion === 'head-to-head') {
       const h2h = computeHeadToHeadPoints(a.teamId, b.teamId, playedMatches, rules);
       if (h2h.ptsB !== h2h.ptsA) return h2h.ptsB - h2h.ptsA;
@@ -428,7 +449,7 @@ export function computeStandings(
       if (criterion === 'goal-diff') {
         if (b.gd !== a.gd) return b.gd - a.gd;
       } else if (criterion === 'goals-for') {
-        if (b.gf !== a.gf) return b.gf - a.gf;
+        if (b.gf !== a.gf) return lowestScoreWins ? a.gf - b.gf : b.gf - a.gf;
       } else if (criterion === 'win-pct') {
         if (Math.abs(b.winPct - a.winPct) > 0.0001) return b.winPct - a.winPct;
       } else if (criterion === 'head-to-head') {
@@ -468,14 +489,11 @@ export function applyLeagueMatchResult(
   );
   const combinedMatchAdv = [...(meta.preApplied ?? []), ...postApplied];
 
+  const lowestScoreWins = Boolean(competition.rules.lowestScoreWins || sport.lowestScoreWins);
   const matches = competition.matches.map((m) => {
     if (m.id !== matchId) return m;
-    const winnerId =
-      homeScore > awayScore
-        ? m.homeTeamId
-        : awayScore > homeScore
-          ? m.awayTeamId
-          : null;
+    const cmp = compareMatchScores(homeScore, awayScore, lowestScoreWins);
+    const winnerId = cmp > 0 ? m.homeTeamId : cmp < 0 ? m.awayTeamId : null;
     return {
       ...m,
       homeScore,

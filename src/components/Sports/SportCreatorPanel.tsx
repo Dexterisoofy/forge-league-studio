@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   Dumbbell,
   Edit3,
   FileJson,
+  Info,
   Plus,
   Save,
   Share2,
@@ -84,6 +86,8 @@ function createBlankSport(): SportDefinition {
       { id: 'super', name: 'Hyper Shot', points: 5, weight: 35 },
     ],
     expectedScoringEventsPerTeam: 8.5,
+    startingScore: 0,
+    lowestScoreWins: false,
     statColumns: [
       { key: 'pts', label: 'PTS', format: 'int' },
       { key: 'assists', label: 'AST', format: 'int' },
@@ -132,8 +136,8 @@ export const SportCreatorPanel: React.FC = () => {
       showToast('Sport name cannot be empty');
       return;
     }
-    if (draft.positions.length === 0 || draft.scoringEvents.length === 0) {
-      showToast('Add at least 1 position and 1 scoring event');
+    if (draft.positions.length === 0) {
+      showToast('Add at least 1 position');
       return;
     }
     saveCustomSport(draft);
@@ -162,6 +166,28 @@ export const SportCreatorPanel: React.FC = () => {
     };
     setDraft((d) => ({ ...d, scoringEvents: [...d.scoringEvents, ev] }));
   };
+
+  const addPenaltyEvent = () => {
+    const ev: ScoringEvent = {
+      id: `pen-${Date.now().toString(36)}`,
+      name: 'Penalty / Foul',
+      points: -1,
+      weight: 25,
+    };
+    setDraft((d) => ({ ...d, scoringEvents: [...d.scoringEvents, ev] }));
+  };
+
+  const totalEventWeight = draft.scoringEvents.reduce((acc, ev) => acc + Math.max(1, ev.weight), 0);
+  const avgPointsPerEvent =
+    draft.scoringEvents.length > 0 && totalEventWeight > 0
+      ? draft.scoringEvents.reduce((acc, ev) => acc + ev.points * Math.max(1, ev.weight), 0) /
+        totalEventWeight
+      : 0;
+  const startingScoreVal = draft.startingScore ?? 0;
+  const expectedAvgScore =
+    draft.scoringEvents.length === 0 || draft.expectedScoringEventsPerTeam <= 0
+      ? startingScoreVal
+      : startingScoreVal + draft.expectedScoringEventsPerTeam * avgPointsPerEvent;
 
   const addStatColumn = () => {
     const st: SportStatDef = {
@@ -343,19 +369,33 @@ export const SportCreatorPanel: React.FC = () => {
           </div>
         </div>
 
+        {/* Quick Guide Banner */}
+        <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-3.5 text-xs text-slate-300 flex items-start gap-2.5">
+          <Info className="h-4 w-4 text-sky-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-semibold text-sky-200">How Custom Sports Work</p>
+            <p className="text-[11px] leading-relaxed text-slate-300/90">
+              1) <strong>Identity &amp; Periods</strong> sets the labels shown across schedules and match cards.{' '}
+              2) <strong>Scoring Events &amp; Penalties</strong> controls how matches simulate scores (supports positive plays, negative penalties, starting scores, lowest-score-wins, or 0 plays for shootout-only sports).{' '}
+              3) <strong>Winner Criterion &amp; Positions</strong> sets default league table rules and what players get drafted onto every club.
+            </p>
+          </div>
+        </div>
+
         {/* Basic Identity, Terminology & Periods */}
         <div className="grid gap-4 md:grid-cols-4">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Sport Name</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Sport Name</label>
             <input
               type="text"
               value={draft.name}
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Shown in the sport selector and Community Hub.</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Score Unit (e.g. Goals / Points)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Score Unit</label>
             <input
               type="text"
               value={draft.terminology.scoreUnit}
@@ -367,9 +407,10 @@ export const SportCreatorPanel: React.FC = () => {
               }
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Plural word for points (e.g., Goals, Points, Penalties, Strokes).</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Match Noun (e.g. Game / Match)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Match Noun</label>
             <input
               type="text"
               value={draft.terminology.matchUnit}
@@ -381,9 +422,10 @@ export const SportCreatorPanel: React.FC = () => {
               }
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Singular word for a fixture (e.g., Match, Game, Bout, Round).</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Venue Noun (e.g. Arena / Pitch)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Venue Noun</label>
             <input
               type="text"
               value={draft.terminology.venueNoun}
@@ -396,21 +438,23 @@ export const SportCreatorPanel: React.FC = () => {
               }
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Default stadium suffix used for auto-generated teams (e.g., Arena, Pitch, Course).</p>
           </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-6">
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Period Name</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Period Name</label>
             <input
               type="text"
               value={draft.periodName}
               onChange={(e) => setDraft({ ...draft, periodName: e.target.value })}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">e.g., Half, Quarter, Set, Heat</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400"># Periods</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300"># Periods</label>
             <input
               type="number"
               min={1}
@@ -419,18 +463,21 @@ export const SportCreatorPanel: React.FC = () => {
               onChange={(e) => setDraft({ ...draft, periodCount: Number(e.target.value) || 2 })}
               className="font-mono-code w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Parts per regulation match</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Period Length</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Period Length</label>
             <input
               type="text"
               value={draft.periodLengthLabel}
               onChange={(e) => setDraft({ ...draft, periodLengthLabel: e.target.value })}
+              placeholder="e.g. 12 min or Unlimited"
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Display text (e.g., 10 min, 25 pts, or Unlimited)</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Roster Min / Max</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Roster Min / Max</label>
             <div className="flex gap-1">
               <input
                 type="number"
@@ -459,9 +506,10 @@ export const SportCreatorPanel: React.FC = () => {
                 className="font-mono-code w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-xs text-white"
               />
             </div>
+            <p className="mt-1 text-[10px] text-slate-500">Players generated per club</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Active Lineup</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Active Lineup</label>
             <input
               type="number"
               min={1}
@@ -472,9 +520,10 @@ export const SportCreatorPanel: React.FC = () => {
               }
               className="font-mono-code w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
             />
+            <p className="mt-1 text-[10px] text-slate-500">Starters playing at once</p>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Jersey Silhouette</label>
+            <label className="mb-1 block text-xs font-medium text-slate-300">Jersey Silhouette</label>
             <select
               value={draft.jerseySilhouette}
               onChange={(e) =>
@@ -488,71 +537,97 @@ export const SportCreatorPanel: React.FC = () => {
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-[10px] text-slate-500">Vector kit icon for teams</p>
           </div>
         </div>
 
         {/* Scoring Events & Avg Events */}
         <div className="grid gap-5 md:grid-cols-2">
           <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h4 className="text-xs font-bold tracking-wider text-amber-300 uppercase">
-                  Scoring Events &amp; Weights
+                  Scoring Events &amp; Penalties
                 </h4>
                 <p className="text-[11px] text-slate-400">
-                  Define every scoring play, point value, and relative frequency
+                  Positive plays reward teams; negative penalties penalize teams (stronger teams commit fewer penalties).
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={addScoringEvent}
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
-              >
-                <Plus className="h-3 w-3" />
-                Add Play
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={addPenaltyEvent}
+                  className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  Add Penalty (-1)
+                </button>
+                <button
+                  type="button"
+                  onClick={addScoringEvent}
+                  className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
+                >
+                  <Plus className="h-3 w-3" />
+                  Add Play
+                </button>
+              </div>
             </div>
-            <div className="space-y-2">
-              {draft.scoringEvents.map((ev, idx) => (
-                <div key={ev.id} className="flex items-center gap-2 text-xs">
-                  <input
-                    type="text"
-                    value={ev.name}
-                    onChange={(e) => {
-                      const next = [...draft.scoringEvents];
-                      next[idx] = { ...ev, name: e.target.value };
-                      setDraft({ ...draft, scoringEvents: next });
-                    }}
-                    placeholder="Play Name"
-                    className="flex-1 rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-white"
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={ev.points}
-                    onChange={(e) => {
-                      const next = [...draft.scoringEvents];
-                      next[idx] = { ...ev, points: Number(e.target.value) || 1 };
-                      setDraft({ ...draft, scoringEvents: next });
-                    }}
-                    title="Points"
-                    className="font-mono-code w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center text-amber-300"
-                  />
-                  <input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={ev.weight}
-                    onChange={(e) => {
-                      const next = [...draft.scoringEvents];
-                      next[idx] = { ...ev, weight: Number(e.target.value) || 10 };
-                      setDraft({ ...draft, scoringEvents: next });
-                    }}
-                    title="Probability Weight"
-                    className="font-mono-code w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center text-sky-300"
-                  />
-                  {draft.scoringEvents.length > 1 && (
+
+            {draft.scoringEvents.length > 0 ? (
+              <div className="space-y-2">
+                <div className="grid grid-cols-[1fr_4.25rem_4.25rem_1.75rem] gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  <span>Play / Penalty Name</span>
+                  <span className="text-center">Pts (+/-)</span>
+                  <span className="text-center">Weight</span>
+                  <span />
+                </div>
+                {draft.scoringEvents.map((ev, idx) => (
+                  <div key={ev.id} className="grid grid-cols-[1fr_4.25rem_4.25rem_1.75rem] items-center gap-2 text-xs">
+                    <input
+                      type="text"
+                      value={ev.name}
+                      onChange={(e) => {
+                        const next = [...draft.scoringEvents];
+                        next[idx] = { ...ev, name: e.target.value };
+                        setDraft({ ...draft, scoringEvents: next });
+                      }}
+                      placeholder="Play or Penalty Name"
+                      className="rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-white"
+                    />
+                    <input
+                      type="number"
+                      min={-100}
+                      max={100}
+                      value={ev.points}
+                      onChange={(e) => {
+                        const parsed = Number.parseInt(e.target.value, 10);
+                        const next = [...draft.scoringEvents];
+                        next[idx] = { ...ev, points: Number.isNaN(parsed) ? 0 : parsed };
+                        setDraft({ ...draft, scoringEvents: next });
+                      }}
+                      title="Points added (positive) or deducted (negative) per occurrence"
+                      className={`font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center ${
+                        ev.points < 0
+                          ? 'text-rose-300'
+                          : ev.points === 0
+                            ? 'text-slate-300'
+                            : 'text-amber-300'
+                      }`}
+                    />
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={ev.weight}
+                      onChange={(e) => {
+                        const parsed = Number.parseInt(e.target.value, 10);
+                        const next = [...draft.scoringEvents];
+                        next[idx] = { ...ev, weight: Number.isNaN(parsed) ? 1 : Math.max(1, parsed) };
+                        setDraft({ ...draft, scoringEvents: next });
+                      }}
+                      title="Relative frequency weight (higher = occurs more often compared to other rows)"
+                      className="font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center text-sky-300"
+                    />
                     <button
                       type="button"
                       onClick={() =>
@@ -561,41 +636,103 @@ export const SportCreatorPanel: React.FC = () => {
                           scoringEvents: draft.scoringEvents.filter((_, i) => i !== idx),
                         })
                       }
-                      className="p-1 text-rose-400 hover:bg-rose-500/15 rounded cursor-pointer"
+                      title="Remove event (you can have 0 plays for shootout-only sports)"
+                      className="p-1 text-rose-400 hover:bg-rose-500/15 rounded cursor-pointer flex justify-center"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                  )}
-                </div>
-              ))}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 p-3 text-[11px] text-amber-200/90">
+                <strong>No scoring plays configured (0-Play Mode):</strong> Every match starts tied at the{' '}
+                <strong>Starting Score ({startingScoreVal})</strong> and is decided strictly by Overtime / Shootout rules or ends in a draw if draws are allowed.
+              </div>
+            )}
+
+            <div className="grid gap-3 pt-2 sm:grid-cols-3 border-t border-slate-800/80 text-xs">
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-300">
+                  Expected Events / Team
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min={0}
+                  max={80}
+                  value={draft.expectedScoringEventsPerTeam}
+                  onChange={(e) => {
+                    const parsed = Number.parseFloat(e.target.value);
+                    setDraft({
+                      ...draft,
+                      expectedScoringEventsPerTeam: Number.isNaN(parsed) ? 0 : Math.max(0, parsed),
+                    });
+                  }}
+                  className="font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center text-white"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">Avg plays/penalties per team each match (0 = no events).</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-300">Starting Score</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  value={draft.startingScore ?? 0}
+                  onChange={(e) => {
+                    const parsed = Number.parseInt(e.target.value, 10);
+                    setDraft({
+                      ...draft,
+                      startingScore: Number.isNaN(parsed) ? 0 : parsed,
+                    });
+                  }}
+                  className="font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center text-white"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">Score each team starts at (e.g., 100 for penalty deductions).</p>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] text-slate-300">Win Condition</label>
+                <select
+                  value={draft.lowestScoreWins ? 'lowest' : 'highest'}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      lowestScoreWins: e.target.value === 'lowest',
+                    })
+                  }
+                  className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-white"
+                >
+                  <option value="highest">Highest Score Wins</option>
+                  <option value="lowest">Lowest Score Wins</option>
+                </select>
+                <p className="mt-1 text-[10px] text-slate-500">Use Lowest Score Wins for penalty-count or golf sports.</p>
+              </div>
             </div>
-            <div className="pt-1 flex items-center justify-between text-xs">
-              <span className="text-slate-400">Expected Scoring Events / Team / Match:</span>
-              <input
-                type="number"
-                step="0.5"
-                min={0.5}
-                max={80}
-                value={draft.expectedScoringEventsPerTeam}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    expectedScoringEventsPerTeam: Number(e.target.value) || 2,
-                  })
-                }
-                className="font-mono-code w-20 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-center text-white"
-              />
+
+            <div className="rounded-lg bg-slate-900/90 border border-slate-800 px-3 py-2 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-2">
+              <span>
+                <strong>Weight</strong> = relative odds (<code className="text-sky-300">weight / sum</code>; doesn&apos;t need to equal 100).
+              </span>
+              <span className="font-mono-code text-amber-300 font-semibold">
+                Est. Avg Score: {expectedAvgScore.toFixed(1)} {draft.terminology.scoreUnit || 'pts'}/team
+              </span>
             </div>
           </div>
 
           {/* League Winner & Custom Standings Points */}
           <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4 space-y-3">
-            <h4 className="text-xs font-bold tracking-wider text-emerald-300 uppercase">
-              Winner Criterion &amp; Standings Points
-            </h4>
+            <div>
+              <h4 className="text-xs font-bold tracking-wider text-emerald-300 uppercase">
+                Winner Criterion &amp; Standings Points
+              </h4>
+              <p className="text-[11px] text-slate-400">
+                Default league table sorting and tie-breaking rules whenever you create a league using this sport.
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="mb-1 block text-slate-400">Champion / Seeding Rule</label>
+                <label className="mb-1 block text-slate-300">Champion / Seeding Rule</label>
                 <select
                   value={draft.defaultRules.winnerCriterion}
                   onChange={(e) =>
@@ -615,9 +752,10 @@ export const SportCreatorPanel: React.FC = () => {
                   <option value="goals-for">Most Total Points Scored</option>
                   <option value="head-to-head">Head-to-Head Record</option>
                 </select>
+                <p className="mt-1 text-[10px] text-slate-500">Primary stat used to rank teams in standings.</p>
               </div>
               <div>
-                <label className="mb-1 block text-slate-400">Overtime / Tie Rule</label>
+                <label className="mb-1 block text-slate-300">Overtime / Tie Rule</label>
                 <select
                   value={draft.defaultRules.overtimeRule}
                   onChange={(e) =>
@@ -638,39 +776,46 @@ export const SportCreatorPanel: React.FC = () => {
                   <option value="penalties">Direct Shootout / Penalties</option>
                   <option value="golden-goal">Golden Goal Sudden Death</option>
                 </select>
+                <p className="mt-1 text-[10px] text-slate-500">How tied matches finish (crucial for 0-play sports).</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-5 gap-2 text-xs">
-              {(
-                [
-                  ['pointsWin', 'Win'],
-                  ['pointsOtWin', 'OT Win'],
-                  ['pointsDraw', 'Draw'],
-                  ['pointsOtLoss', 'OT Loss'],
-                  ['pointsLoss', 'Loss'],
-                ] as const
-              ).map(([field, lbl]) => (
-                <div key={field}>
-                  <label className="mb-1 block text-[10px] text-slate-400">{lbl}</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={20}
-                    value={draft.defaultRules[field]}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        defaultRules: {
-                          ...draft.defaultRules,
-                          [field]: Number(e.target.value) || 0,
-                        },
-                      })
-                    }
-                    className="font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center font-bold text-white"
-                  />
-                </div>
-              ))}
+            <div>
+              <p className="mb-1.5 text-[11px] text-slate-400">
+                Table points awarded to a team&apos;s standings based on match outcome:
+              </p>
+              <div className="grid grid-cols-5 gap-2 text-xs">
+                {(
+                  [
+                    ['pointsWin', 'Win'],
+                    ['pointsOtWin', 'OT Win'],
+                    ['pointsDraw', 'Draw'],
+                    ['pointsOtLoss', 'OT Loss'],
+                    ['pointsLoss', 'Loss'],
+                  ] as const
+                ).map(([field, lbl]) => (
+                  <div key={field}>
+                    <label className="mb-1 block text-[10px] text-slate-400">{lbl}</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={20}
+                      value={draft.defaultRules[field]}
+                      onChange={(e) => {
+                        const parsed = Number.parseInt(e.target.value, 10);
+                        setDraft({
+                          ...draft,
+                          defaultRules: {
+                            ...draft.defaultRules,
+                            [field]: Number.isNaN(parsed) ? 0 : parsed,
+                          },
+                        });
+                      }}
+                      className="font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-center font-bold text-white"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -678,22 +823,32 @@ export const SportCreatorPanel: React.FC = () => {
         {/* Custom Positions & Custom Stat Columns */}
         <div className="grid gap-5 md:grid-cols-2">
           <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold tracking-wider text-sky-300 uppercase">
-                Custom Positions ({draft.positions.length})
-              </h4>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold tracking-wider text-sky-300 uppercase">
+                  Custom Positions ({draft.positions.length})
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Roles assigned when generating club rosters. Short code appears next to player names.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={addPosition}
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
               >
                 <Plus className="h-3 w-3" />
                 Add Position
               </button>
             </div>
+            <div className="grid grid-cols-[4rem_1fr_1.75rem] gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <span>Code</span>
+              <span>Full Position Name</span>
+              <span />
+            </div>
             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
               {draft.positions.map((pos, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-xs">
+                <div key={idx} className="grid grid-cols-[4rem_1fr_1.75rem] items-center gap-2 text-xs">
                   <input
                     type="text"
                     maxLength={5}
@@ -703,7 +858,8 @@ export const SportCreatorPanel: React.FC = () => {
                       next[idx] = { ...pos, code: e.target.value.toUpperCase() };
                       setDraft({ ...draft, positions: next });
                     }}
-                    className="font-mono-code w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1.5 font-bold text-sky-300 uppercase"
+                    placeholder="CAP"
+                    className="font-mono-code w-full rounded border border-slate-700 bg-slate-900 px-2 py-1.5 font-bold text-sky-300 uppercase"
                   />
                   <input
                     type="text"
@@ -713,9 +869,10 @@ export const SportCreatorPanel: React.FC = () => {
                       next[idx] = { ...pos, name: e.target.value };
                       setDraft({ ...draft, positions: next });
                     }}
-                    className="flex-1 rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-white"
+                    placeholder="e.g. Captain"
+                    className="rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-white"
                   />
-                  {draft.positions.length > 1 && (
+                  {draft.positions.length > 1 ? (
                     <button
                       type="button"
                       onClick={() =>
@@ -728,6 +885,8 @@ export const SportCreatorPanel: React.FC = () => {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
+                  ) : (
+                    <span />
                   )}
                 </div>
               ))}
@@ -735,22 +894,32 @@ export const SportCreatorPanel: React.FC = () => {
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold tracking-wider text-purple-300 uppercase">
-                Player Stat Columns ({draft.statColumns.length})
-              </h4>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold tracking-wider text-purple-300 uppercase">
+                  Player Stat Columns ({draft.statColumns.length})
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  Columns tracked for every player across Preseason and Regular Season leaderboards.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={addStatColumn}
-                className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
+                className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1 text-xs font-semibold text-white hover:bg-slate-700 cursor-pointer"
               >
                 <Plus className="h-3 w-3" />
                 Add Stat
               </button>
             </div>
+            <div className="grid grid-cols-[1fr_8.5rem_1.75rem] gap-2 px-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              <span>Stat Label</span>
+              <span>Display Format</span>
+              <span />
+            </div>
             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
               {draft.statColumns.map((st, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-xs">
+                <div key={idx} className="grid grid-cols-[1fr_8.5rem_1.75rem] items-center gap-2 text-xs">
                   <input
                     type="text"
                     value={st.label}
@@ -763,7 +932,8 @@ export const SportCreatorPanel: React.FC = () => {
                       };
                       setDraft({ ...draft, statColumns: next });
                     }}
-                    className="flex-1 rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-white"
+                    placeholder="e.g. PTS, PEN, AST"
+                    className="rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-white"
                   />
                   <select
                     value={st.format}
@@ -777,12 +947,12 @@ export const SportCreatorPanel: React.FC = () => {
                     }}
                     className="rounded border border-slate-700 bg-slate-900 px-2 py-1.5 text-slate-200"
                   >
-                    <option value="int">Integer</option>
-                    <option value="dec1">Per-Game (0.0)</option>
-                    <option value="pct">Percentage (%)</option>
-                    <option value="avg3">Average (.000)</option>
+                    <option value="int">Integer (12)</option>
+                    <option value="dec1">Per-Game (12.4)</option>
+                    <option value="pct">Percentage (74%)</option>
+                    <option value="avg3">Average (.312)</option>
                   </select>
-                  {draft.statColumns.length > 1 && (
+                  {draft.statColumns.length > 1 ? (
                     <button
                       type="button"
                       onClick={() =>
@@ -795,6 +965,8 @@ export const SportCreatorPanel: React.FC = () => {
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
+                  ) : (
+                    <span />
                   )}
                 </div>
               ))}
@@ -810,7 +982,7 @@ export const SportCreatorPanel: React.FC = () => {
                 Optional Default Break / Bye Weeks
               </h4>
               <p className="text-[11px] text-slate-400">
-                Automatically seed scheduled rest weeks when leagues are created with this custom sport
+                Automatically assign staggered rest rounds (no matches played) when creating leagues with this sport.
               </p>
             </div>
             <label className="inline-flex items-center gap-2 text-xs font-semibold text-white cursor-pointer">
@@ -838,7 +1010,7 @@ export const SportCreatorPanel: React.FC = () => {
           {draft.defaultBreakWeeks?.enabled && (
             <div className="grid gap-3 sm:grid-cols-3 text-xs pt-1">
               <div>
-                <label className="mb-1 block text-slate-400">Breaks per Team</label>
+                <label className="mb-1 block text-slate-300">Breaks per Team</label>
                 <input
                   type="number"
                   min={1}
@@ -855,9 +1027,10 @@ export const SportCreatorPanel: React.FC = () => {
                   }
                   className="font-mono-code w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-white"
                 />
+                <p className="mt-1 text-[10px] text-slate-500">How many rest rounds each club gets during the season.</p>
               </div>
               <div>
-                <label className="mb-1 block text-slate-400">Window Start Matchday</label>
+                <label className="mb-1 block text-slate-300">Window Start Matchday</label>
                 <input
                   type="number"
                   min={1}
@@ -874,9 +1047,10 @@ export const SportCreatorPanel: React.FC = () => {
                   }
                   className="font-mono-code w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-white"
                 />
+                <p className="mt-1 text-[10px] text-slate-500">Earliest matchday/round a team can be given a break.</p>
               </div>
               <div>
-                <label className="mb-1 block text-slate-400">Window End Matchday</label>
+                <label className="mb-1 block text-slate-300">Window End Matchday</label>
                 <input
                   type="number"
                   min={1}
@@ -893,6 +1067,7 @@ export const SportCreatorPanel: React.FC = () => {
                   }
                   className="font-mono-code w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-white"
                 />
+                <p className="mt-1 text-[10px] text-slate-500">Latest matchday/round before breaks stop being scheduled.</p>
               </div>
             </div>
           )}

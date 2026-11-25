@@ -95,6 +95,8 @@ export interface SportDefinition {
   statColumns: SportStatDef[];
   scoringEvents: ScoringEvent[];
   expectedScoringEventsPerTeam: number;
+  startingScore?: number;
+  lowestScoreWins?: boolean;
   playstyles: string[];
   venueTemplates: string[];
   equipmentIconIds: string[];
@@ -233,6 +235,7 @@ export interface CompetitionRules {
   tiebreakers: TiebreakerCriterion[];
   overtimeRule: OvertimeRule;
   homeFieldAdvantage: boolean;
+  lowestScoreWins?: boolean;
 }
 
 export interface BreakWeeksConfig {

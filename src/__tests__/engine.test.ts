@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createCustomAdvantageRule,
   PRESET_ADVANTAGE_RULES,
+  simulateSportScore,
 } from '../engine/simulation/advantageEngine';
 import {
   advanceCupWinner,
@@ -683,5 +684,122 @@ describe('Simulation History, Granular Permissions, Sharing & Env Config', () =>
     expect(cfg.provider).toBe('local');
     expect(cfg.supabaseUrl).toBe('');
     expect(cfg.firebaseApiKey).toBe('');
+  });
+
+  it('supports negative penalty points and startingScore deduction sports', () => {
+    const { teams } = makeUniqueTeams(2);
+    const deductionSport: SportDefinition = {
+      ...BUILT_IN_SPORTS[0],
+      id: 'deduction-sport',
+      name: 'Precision Trial',
+      isBuiltIn: false,
+      startingScore: 100,
+      lowestScoreWins: false,
+      scoringEvents: [
+        { id: 'foul', name: 'Minor Foul', points: -2, weight: 70 },
+        { id: 'major', name: 'Major Violation', points: -5, weight: 30 },
+      ],
+      expectedScoringEventsPerTeam: 6,
+    };
+
+    for (let i = 0; i < 10; i++) {
+      const res = simulateSportScore(teams[0], teams[1], deductionSport, true);
+      expect(res.homeScore).toBeLessThanOrEqual(100);
+      expect(res.awayScore).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('supports lowestScoreWins for penalty-only league standings and cup advancement', () => {
+    const { teams } = makeUniqueTeams(4);
+    const penaltySport: SportDefinition = {
+      ...BUILT_IN_SPORTS[0],
+      id: 'penalty-only-sport',
+      name: 'Clean Run',
+      isBuiltIn: false,
+      startingScore: 0,
+      lowestScoreWins: true,
+      scoringEvents: [{ id: 'pen', name: 'Infraction', points: 1, weight: 100 }],
+      expectedScoringEventsPerTeam: 4,
+      defaultRules: {
+        ...BUILT_IN_SPORTS[0].defaultRules,
+        winnerCriterion: 'standings-points',
+        overtimeRule: 'overtime-periods',
+        drawsAllowed: false,
+      },
+    };
+
+    let league = createLeague(
+      'Clean Run League',
+      teams,
+      'single-rr',
+      buildDefaultRulesForSport(penaltySport),
+      DEFAULT_SCHEDULE_CONFIG,
+      DEFAULT_COMPETITION_BRANDING,
+      penaltySport.id
+    );
+
+    // Team 0 gets 1 penalty vs Team 1's 4 penalties -> Team 0 wins under lowestScoreWins
+    const firstMatch = league.matches[0];
+    league = applyLeagueMatchResult(league, firstMatch.id, 1, 4, penaltySport);
+    const updatedMatch = league.matches.find((m) => m.id === firstMatch.id)!;
+    expect(updatedMatch.winnerId).toBe(firstMatch.homeTeamId);
+
+    const standings = computeStandings(league.teams, league.matches, league.rules);
+    const winnerRow = standings.find((r) => r.teamId === firstMatch.homeTeamId)!;
+    const loserRow = standings.find((r) => r.teamId === firstMatch.awayTeamId)!;
+    expect(winnerRow.won).toBe(1);
+    expect(winnerRow.gd).toBe(3); // 4 conceded - 1 incurred = +3 favorable diff
+    expect(loserRow.lost).toBe(1);
+    expect(loserRow.gd).toBe(-3);
+
+    // Cup advancement: lower score advances
+    let cup = createCup(
+      'Clean Run Cup',
+      teams,
+      'single-elim',
+      buildDefaultRulesForSport(penaltySport),
+      DEFAULT_SCHEDULE_CONFIG,
+      DEFAULT_COMPETITION_BRANDING,
+      penaltySport.id
+    );
+    const sf1 = cup.matches.find((m) => m.round === 1 && m.homeTeamId && m.awayTeamId)!;
+    cup = advanceCupWinner(cup, sf1.id, 2, 5, null, null, penaltySport);
+    const sf1Done = cup.matches.find((m) => m.id === sf1.id)!;
+    expect(sf1Done.winnerId).toBe(sf1.homeTeamId);
+  });
+
+  it('supports zero-play sports resolving ties via shootout without mutating startingScore', () => {
+    const { teams } = makeUniqueTeams(2);
+    const shootoutSport: SportDefinition = {
+      ...BUILT_IN_SPORTS[0],
+      id: 'shootout-only',
+      name: 'Sudden Duel',
+      isBuiltIn: false,
+      startingScore: 0,
+      lowestScoreWins: false,
+      scoringEvents: [],
+      expectedScoringEventsPerTeam: 0,
+      defaultRules: {
+        ...BUILT_IN_SPORTS[0].defaultRules,
+        overtimeRule: 'penalties',
+        drawsAllowed: false,
+      },
+    };
+
+    const scoreRes = simulateSportScore(teams[0], teams[1], shootoutSport, false);
+    expect(scoreRes.homeScore).toBe(0);
+    expect(scoreRes.awayScore).toBe(0);
+    expect(scoreRes.scoringSummary[0]).toContain('no reg. plays');
+
+    const cupRes = simulateCupScore(
+      teams[0],
+      teams[1],
+      buildDefaultRulesForSport(shootoutSport),
+      shootoutSport
+    );
+    expect(cupRes.homeScore).toBe(0);
+    expect(cupRes.awayScore).toBe(0);
+    expect(cupRes.resolutionNote).toBe('PENS');
+    expect([teams[0].id, teams[1].id]).toContain(cupRes.penaltyWinnerId);
   });
 });

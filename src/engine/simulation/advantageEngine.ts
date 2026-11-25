@@ -341,7 +341,8 @@ export function evaluatePostMatchAdvantages(
 }
 
 /**
- * Simulates sport-specific match scores using the sport's scoringEvents & expected volume.
+ * Simulates sport-specific match scores using the sport's scoringEvents, startingScore,
+ * expected volume, and win-direction semantics (supports negative penalties & zero-play sports).
  */
 export function simulateSportScore(
   homeTeam: Team,
@@ -355,14 +356,27 @@ export function simulateSportScore(
   const awayEff = awayTeam.overallRating * awayRatingMultiplier;
   const ratingDiff = (homeEff - awayEff) / 14;
 
-  const baseEvents = Math.max(1, sport.expectedScoringEventsPerTeam || 1.4);
-  const homeEdge = homeFieldAdvantage ? 1.07 : 1.0;
-  const awayEdge = homeFieldAdvantage ? 0.94 : 1.0;
+  const startingScore = sport.startingScore ?? 0;
+  const lowestScoreWins = Boolean(sport.lowestScoreWins);
+  const rawEvents = sport.scoringEvents ?? [];
+  const rawExpected = sport.expectedScoringEventsPerTeam;
 
-  const homeLambda = Math.max(0.4, baseEvents * homeEdge * (1 + ratingDiff * 0.14));
-  const awayLambda = Math.max(0.35, baseEvents * awayEdge * (1 - ratingDiff * 0.14));
+  // Zero-play / no-regulation-scoring sport (starts both teams at startingScore)
+  if (rawEvents.length === 0 || (rawExpected !== undefined && rawExpected <= 0)) {
+    return {
+      homeScore: startingScore,
+      awayScore: startingScore,
+      scoringSummary: [
+        `${homeTeam.abbreviation}: ${startingScore} (no reg. plays)`,
+        `${awayTeam.abbreviation}: ${startingScore} (no reg. plays)`,
+      ],
+    };
+  }
+
+  const baseEvents = Math.max(0.25, rawExpected ?? 1.4);
 
   const sampleCount = (lambda: number): number => {
+    if (lambda <= 0) return 0;
     if (lambda > 20) {
       // Normal approximation for high-event sports like Basketball
       const u1 = Math.max(1e-6, Math.random());
@@ -380,48 +394,105 @@ export function simulateSportScore(
     return Math.max(0, k - 1);
   };
 
-  const events =
-    sport.scoringEvents.length > 0
-      ? sport.scoringEvents
-      : BUILT_IN_SPORTS[0].scoringEvents;
-  const totalWeight = events.reduce((acc, e) => acc + Math.max(1, e.weight), 0);
-
-  const pickEvent = () => {
-    let r = Math.random() * totalWeight;
-    for (const ev of events) {
+  const pickFromPool = (pool: SportDefinition['scoringEvents']) => {
+    const totalW = pool.reduce((acc, e) => acc + Math.max(1, e.weight), 0);
+    let r = Math.random() * totalW;
+    for (const ev of pool) {
       r -= Math.max(1, ev.weight);
       if (r <= 0) return ev;
     }
-    return events[0];
+    return pool[0];
   };
 
-  const tallyTeam = (eventCount: number) => {
-    let pts = 0;
-    const counts = new Map<string, number>();
+  const positiveEvents = rawEvents.filter((e) => e.points > 0);
+  const penaltyEvents = rawEvents.filter((e) => e.points <= 0);
+
+  const tallyPool = (
+    eventCount: number,
+    pool: SportDefinition['scoringEvents'],
+    counts: Map<string, number>
+  ): number => {
+    let delta = 0;
     for (let i = 0; i < eventCount; i++) {
-      const ev = pickEvent();
-      pts += ev.points;
+      const ev = pickFromPool(pool);
+      delta += ev.points;
       counts.set(ev.name, (counts.get(ev.name) ?? 0) + 1);
     }
-    return { pts, counts };
+    return delta;
   };
 
-  const homeRes = tallyTeam(sampleCount(homeLambda));
-  const awayRes = tallyTeam(sampleCount(awayLambda));
+  const homeCounts = new Map<string, number>();
+  const awayCounts = new Map<string, number>();
+  let homeDelta = 0;
+  let awayDelta = 0;
 
-  const formatSummary = (label: string, counts: Map<string, number>) => {
+  if (lowestScoreWins || positiveEvents.length === 0) {
+    // Lower score / fewer negative penalties is better -> stronger/home teams incur fewer events
+    const homePenEdge = homeFieldAdvantage ? 0.94 : 1.0;
+    const awayPenEdge = homeFieldAdvantage ? 1.07 : 1.0;
+    const homeLambda = Math.max(0.2, baseEvents * homePenEdge * (1 - ratingDiff * 0.14));
+    const awayLambda = Math.max(0.2, baseEvents * awayPenEdge * (1 + ratingDiff * 0.14));
+    homeDelta += tallyPool(sampleCount(homeLambda), rawEvents, homeCounts);
+    awayDelta += tallyPool(sampleCount(awayLambda), rawEvents, awayCounts);
+  } else if (penaltyEvents.length > 0) {
+    // Mixed positive scoring plays + negative/zero penalty plays
+    const posWeight = positiveEvents.reduce((s, e) => s + Math.max(1, e.weight), 0);
+    const penWeight = penaltyEvents.reduce((s, e) => s + Math.max(1, e.weight), 0);
+    const sumW = posWeight + penWeight;
+    const posShare = posWeight / sumW;
+    const penShare = penWeight / sumW;
+
+    const homePosEdge = homeFieldAdvantage ? 1.07 : 1.0;
+    const awayPosEdge = homeFieldAdvantage ? 0.94 : 1.0;
+    const homePenEdge = homeFieldAdvantage ? 0.94 : 1.0;
+    const awayPenEdge = homeFieldAdvantage ? 1.07 : 1.0;
+
+    homeDelta += tallyPool(
+      sampleCount(Math.max(0.1, baseEvents * posShare * homePosEdge * (1 + ratingDiff * 0.14))),
+      positiveEvents,
+      homeCounts
+    );
+    awayDelta += tallyPool(
+      sampleCount(Math.max(0.1, baseEvents * posShare * awayPosEdge * (1 - ratingDiff * 0.14))),
+      positiveEvents,
+      awayCounts
+    );
+    homeDelta += tallyPool(
+      sampleCount(Math.max(0.1, baseEvents * penShare * homePenEdge * (1 - ratingDiff * 0.14))),
+      penaltyEvents,
+      homeCounts
+    );
+    awayDelta += tallyPool(
+      sampleCount(Math.max(0.1, baseEvents * penShare * awayPenEdge * (1 + ratingDiff * 0.14))),
+      penaltyEvents,
+      awayCounts
+    );
+  } else {
+    const homeEdge = homeFieldAdvantage ? 1.07 : 1.0;
+    const awayEdge = homeFieldAdvantage ? 0.94 : 1.0;
+    const homeLambda = Math.max(0.35, baseEvents * homeEdge * (1 + ratingDiff * 0.14));
+    const awayLambda = Math.max(0.3, baseEvents * awayEdge * (1 - ratingDiff * 0.14));
+    homeDelta += tallyPool(sampleCount(homeLambda), rawEvents, homeCounts);
+    awayDelta += tallyPool(sampleCount(awayLambda), rawEvents, awayCounts);
+  }
+
+  const formatSummary = (label: string, counts: Map<string, number>, total: number) => {
     const parts = Array.from(counts.entries())
       .map(([n, c]) => `${c}× ${n}`)
       .join(', ');
-    return parts ? `${label}: ${parts}` : `${label}: 0`;
+    if (!parts) return `${label}: ${total}`;
+    return startingScore !== 0 ? `${label}: ${parts} (from ${startingScore})` : `${label}: ${parts}`;
   };
 
+  const homeScore = startingScore + homeDelta;
+  const awayScore = startingScore + awayDelta;
+
   return {
-    homeScore: homeRes.pts,
-    awayScore: awayRes.pts,
+    homeScore,
+    awayScore,
     scoringSummary: [
-      formatSummary(homeTeam.abbreviation, homeRes.counts),
-      formatSummary(awayTeam.abbreviation, awayRes.counts),
+      formatSummary(homeTeam.abbreviation, homeCounts, homeScore),
+      formatSummary(awayTeam.abbreviation, awayCounts, awayScore),
     ],
   };
 }
