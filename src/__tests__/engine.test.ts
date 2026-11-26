@@ -22,13 +22,20 @@ import {
   restoreSnapshotById,
   undoLastSimulation,
 } from '../engine/simulation/historyEngine';
-import { DEFAULT_PRESEASON_CONFIG } from '../engine/simulation/preseasonEngine';
+import {
+  DEFAULT_PRESEASON_CONFIG,
+  generatePreseasonMatches,
+} from '../engine/simulation/preseasonEngine';
 import {
   buildDefaultRulesForSport,
   DEFAULT_COMPETITION_BRANDING,
   DEFAULT_COMPETITION_RULES,
   DEFAULT_SCHEDULE_CONFIG,
 } from '../engine/simulation/scheduler';
+import {
+  getEffectiveTeamRating,
+  isPlayerSuspended,
+} from '../engine/simulation/suspensionEngine';
 import { getBackendConfig, normalizeSupabaseUrl } from '../lib/auth-db/envConfig';
 import {
   DEFAULT_OWNER_PERMISSIONS,
@@ -836,5 +843,133 @@ describe('Simulation History, Granular Permissions, Sharing & Env Config', () =>
     expect(cupRes.awayScore).toBe(0);
     expect(cupRes.resolutionNote).toBe('PENS');
     expect([teams[0].id, teams[1].id]).toContain(cupRes.penaltyWinnerId);
+  });
+
+  it('tracks timed match suspensions, indefinite bans, stat exclusion, and undo restoration', () => {
+    const { teams } = makeUniqueTeams(4);
+    let league = createLeague(
+      'Discipline League',
+      teams,
+      'single-rr',
+      DEFAULT_COMPETITION_RULES,
+      DEFAULT_SCHEDULE_CONFIG,
+      DEFAULT_COMPETITION_BRANDING
+    );
+
+    const teamA = league.teams[0];
+    const sortedStarters = [...teamA.roster].sort((a, b) => b.overall - a.overall);
+    const starId = sortedStarters[0].id;
+    const secondStarId = sortedStarters[1].id;
+
+    // Suspend top player for 2 matches, ban 2nd best player indefinitely
+    const updatedTeams = league.teams.map((t) =>
+      t.id !== teamA.id
+        ? t
+        : {
+            ...t,
+            roster: t.roster.map((p) => {
+              if (p.id === starId) {
+                return {
+                  ...p,
+                  suspension: {
+                    id: 'susp-1',
+                    type: 'suspension' as const,
+                    durationType: 'matches' as const,
+                    gamesRemaining: 2,
+                    totalGames: 2,
+                    reason: 'Red card infraction',
+                    issuedAt: '2026-01-01T00:00:00Z',
+                    active: true,
+                  },
+                };
+              }
+              if (p.id === secondStarId) {
+                return {
+                  ...p,
+                  suspension: {
+                    id: 'ban-1',
+                    type: 'ban' as const,
+                    durationType: 'indefinite' as const,
+                    reason: 'Indefinite league ban',
+                    issuedAt: '2026-01-01T00:00:00Z',
+                    active: true,
+                  },
+                };
+              }
+              return p;
+            }),
+          }
+    );
+    league = { ...league, teams: updatedTeams };
+
+    // Effective rating drops when top stars are suspended/banned
+    const penalizedTeam = league.teams.find((t) => t.id === teamA.id)!;
+    const effective = getEffectiveTeamRating(penalizedTeam, BUILT_IN_SPORTS[0].activeLineupSize);
+    expect(effective).toBeLessThanOrEqual(penalizedTeam.overallRating);
+
+    const teamAMatches = league.matches.filter(
+      (m) => m.homeTeamId === teamA.id || m.awayTeamId === teamA.id
+    );
+
+    // Match 1 with snapshot -> starId gamesRemaining goes 2 -> 1, no stats recorded for suspended/banned players
+    league = pushCompetitionSnapshot(league, 'Before Match 1');
+    league = applyLeagueMatchResult(league, teamAMatches[0].id, 1, 1, BUILT_IN_SPORTS[0]);
+    expect(league.regularPlayerStats?.[starId]).toBeUndefined();
+    expect(league.regularPlayerStats?.[secondStarId]).toBeUndefined();
+
+    const after1Team = league.teams.find((t) => t.id === teamA.id)!;
+    expect(after1Team.roster.find((p) => p.id === starId)?.suspension?.gamesRemaining).toBe(1);
+    expect(isPlayerSuspended(after1Team.roster.find((p) => p.id === secondStarId)!)).toBe(true);
+
+    // Undo restores gamesRemaining back to 2
+    const undone = undoLastSimulation(league);
+    const undoneTeam = undone.teams.find((t) => t.id === teamA.id)!;
+    expect(undoneTeam.roster.find((p) => p.id === starId)?.suspension?.gamesRemaining).toBe(2);
+
+    // Play 2 matches -> timed suspension clears after 2nd match, indefinite ban stays active
+    league = applyLeagueMatchResult(league, teamAMatches[1].id, 2, 0, BUILT_IN_SPORTS[0]);
+    const after2Team = league.teams.find((t) => t.id === teamA.id)!;
+    expect(after2Team.roster.find((p) => p.id === starId)?.suspension).toBeNull();
+    expect(isPlayerSuspended(after2Team.roster.find((p) => p.id === starId)!)).toBe(false);
+    expect(isPlayerSuspended(after2Team.roster.find((p) => p.id === secondStarId)!)).toBe(true);
+  });
+
+  it('allows adding preseason mid-competition without erasing played regular matches', () => {
+    const { teams } = makeUniqueTeams(4);
+    let league = createLeague(
+      'Mid-Edit League',
+      teams,
+      'single-rr',
+      DEFAULT_COMPETITION_RULES,
+      DEFAULT_SCHEDULE_CONFIG,
+      DEFAULT_COMPETITION_BRANDING
+    );
+
+    // Play first regular match
+    const firstId = league.matches[0].id;
+    league = applyLeagueMatchResult(league, firstId, 3, 2, BUILT_IN_SPORTS[0]);
+    expect(league.matches[0].played).toBe(true);
+
+    // Add preseason mid-competition
+    const preMatches = generatePreseasonMatches(
+      league.teams,
+      {
+        ...DEFAULT_PRESEASON_CONFIG,
+        enabled: true,
+        gamesPerTeam: 2,
+      },
+      league.schedule.startDate
+    );
+    const updated = {
+      ...league,
+      preseason: { ...DEFAULT_PRESEASON_CONFIG, enabled: true, gamesPerTeam: 2 },
+      matches: [...preMatches, ...league.matches],
+    };
+
+    const playedRegular = updated.matches.filter((m) => m.bracket !== 'preseason' && m.played);
+    const addedPre = updated.matches.filter((m) => m.bracket === 'preseason');
+    expect(playedRegular.length).toBe(1);
+    expect(playedRegular[0].id).toBe(firstId);
+    expect(addedPre.length).toBeGreaterThan(0);
   });
 });

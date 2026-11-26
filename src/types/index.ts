@@ -133,6 +133,20 @@ export interface LogoConfig {
   dna: string;
 }
 
+export type SuspensionDurationType = 'matches' | 'until-date' | 'season' | 'indefinite';
+
+export interface PlayerSuspension {
+  id: string;
+  type: 'suspension' | 'ban';
+  durationType: SuspensionDurationType;
+  gamesRemaining?: number;
+  totalGames?: number;
+  untilDate?: string;
+  reason: string;
+  issuedAt: string;
+  active: boolean;
+}
+
 export interface Player {
   id: string;
   firstName: string;
@@ -149,6 +163,7 @@ export interface Player {
   speed: number;
   stamina: number;
   iq: number;
+  suspension?: PlayerSuspension | null;
 }
 
 export interface HistoricalRecord {
@@ -465,6 +480,7 @@ export interface SimulationSnapshot {
   id: string;
   label: string;
   timestamp: string;
+  teams?: Team[];
   matches: Match[];
   championId: string | null;
   appliedAdvantages: AppliedAdvantage[];

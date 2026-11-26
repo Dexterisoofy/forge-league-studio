@@ -7,17 +7,20 @@ import {
   Lock,
   Plus,
   Share2,
+  Sliders,
   Trash2,
   Trophy,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { downloadJsonFile } from '../../engine/storage/persistence';
+import { countActiveSuspensions } from '../../engine/simulation/suspensionEngine';
 import { buildTrophySvgString } from '../../engine/svg-logo/trophies';
 import { createDefaultShareMetadata, resolveUserPermissions } from '../../lib/auth-db';
 import type { CompetitionFormat } from '../../types';
 import { LogoSvg } from '../common/LogoSvg';
 import { SharePermissionsModal } from '../Sharing/SharePermissionsModal';
 import { CupBracketView } from './CupBracketView';
+import { EditCompetitionModal } from './EditCompetitionModal';
 import { LeagueView } from './LeagueView';
 import { SetupWizard } from './SetupWizard';
 
@@ -32,6 +35,7 @@ const FORMAT_LABELS: Record<CompetitionFormat, string> = {
 export const CompetitionsHub: React.FC = () => {
   const {
     competitions,
+    communityCompetitions,
     addCompetition,
     updateCompetition,
     deleteCompetition,
@@ -46,10 +50,11 @@ export const CompetitionsHub: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareModalCompId, setShareModalCompId] = useState<string | null>(null);
+  const [editModalCompId, setEditModalCompId] = useState<string | null>(null);
 
   const sharedComp =
     sharedRoute?.kind === 'league'
-      ? competitions.find(
+      ? [...competitions, ...communityCompetitions].find(
           (c) => c.sharing?.slug.toLowerCase() === sharedRoute.slug
         )
       : undefined;
@@ -58,6 +63,9 @@ export const CompetitionsHub: React.FC = () => {
     competitions.find((c) => c.id === selectedId) ?? sharedComp ?? null;
   const shareModalComp =
     competitions.find((c) => c.id === shareModalCompId) ?? null;
+  const editModalComp =
+    competitions.find((c) => c.id === editModalCompId) ??
+    (activeComp?.id === editModalCompId ? activeComp : null);
 
   if (creating) {
     return (
@@ -154,6 +162,11 @@ export const CompetitionsHub: React.FC = () => {
                     /l/{activeComp.sharing.slug} · {activeComp.sharing.visibility}
                   </span>
                 )}
+                {countActiveSuspensions(activeComp.teams) > 0 && (
+                  <span className="rounded bg-rose-500/20 px-2 py-0.5 text-[10px] font-bold text-rose-300 uppercase">
+                    {countActiveSuspensions(activeComp.teams)} Suspended / Banned
+                  </span>
+                )}
               </div>
               <h2 className="font-display text-2xl font-extrabold tracking-wide text-white uppercase">
                 {activeComp.name}
@@ -162,6 +175,18 @@ export const CompetitionsHub: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {(perms.canEditRulesAndAdvantages ||
+              perms.canEditScheduleAndDates ||
+              perms.canEditTeamsAndRosters) && (
+              <button
+                type="button"
+                onClick={() => setEditModalCompId(activeComp.id)}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/40 bg-amber-500/15 px-3.5 py-2 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 cursor-pointer"
+              >
+                <Sliders className="h-4 w-4" />
+                Edit League / Cup
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShareModalCompId(activeComp.id)}
@@ -208,6 +233,14 @@ export const CompetitionsHub: React.FC = () => {
             onSave={(nextSharing) =>
               updateCompetition({ ...shareModalComp, sharing: nextSharing })
             }
+          />
+        )}
+
+        {editModalComp && (
+          <EditCompetitionModal
+            competition={editModalComp}
+            onClose={() => setEditModalCompId(null)}
+            onSave={(updated) => updateCompetition(updated)}
           />
         )}
       </div>

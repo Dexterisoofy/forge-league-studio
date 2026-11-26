@@ -18,7 +18,7 @@ export const CommunityHub: React.FC = () => {
   const {
     allSports,
     communitySports,
-    competitions,
+    communityCompetitions,
     cloneCommunitySport,
     setActiveTab,
     sharedRoute,
@@ -31,9 +31,7 @@ export const CommunityHub: React.FC = () => {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'sports' | 'competitions'>('all');
 
-  const publicCompetitions = competitions.filter(
-    (c) => c.sharing?.visibility === 'public'
-  );
+  const publicCompetitions = communityCompetitions;
 
   // Resolve #/sport/<slug> or /sport/<slug> across public, unlisted, and user's own custom sports
   const searchableSports = [

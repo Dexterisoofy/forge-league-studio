@@ -1,13 +1,22 @@
-import React from 'react';
-import { Lock, Plus, RefreshCw, Trash2, Unlock } from 'lucide-react';
+import React, { useState } from 'react';
+import { Ban, Lock, Plus, RefreshCw, ShieldAlert, Trash2, Unlock } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
   createSinglePlayer,
   generateRoster,
   starRatingToBaseOverall,
 } from '../../engine/generator/rosterGenerator';
-import { createRng } from '../../engine/prng';
-import type { Player, PlayerPosition } from '../../types';
+import { createRng, createUuid } from '../../engine/prng';
+import {
+  formatSuspensionBadge,
+  isPlayerSuspended,
+} from '../../engine/simulation/suspensionEngine';
+import type {
+  Player,
+  PlayerPosition,
+  PlayerSuspension,
+  SuspensionDurationType,
+} from '../../types';
 
 export const RosterEditorPanel: React.FC = () => {
   const {
@@ -20,6 +29,32 @@ export const RosterEditorPanel: React.FC = () => {
   } = useApp();
   const roster = activeTeam.roster;
   const positions = activeSport.positions;
+
+  const [suspEditPlayerId, setSuspEditPlayerId] = useState<string | null>(null);
+  const [suspType, setSuspType] = useState<'suspension' | 'ban'>('suspension');
+  const [suspDuration, setSuspDuration] = useState<SuspensionDurationType>('matches');
+  const [suspGames, setSuspGames] = useState(3);
+  const [suspUntilDate, setSuspUntilDate] = useState(
+    () => new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10)
+  );
+  const [suspReason, setSuspReason] = useState('Disciplinary infraction');
+
+  const issueSuspension = (playerId: string) => {
+    const newSusp: PlayerSuspension = {
+      id: createUuid(),
+      type: suspType,
+      durationType: suspDuration,
+      gamesRemaining: suspDuration === 'matches' ? Math.max(1, suspGames) : undefined,
+      totalGames: suspDuration === 'matches' ? Math.max(1, suspGames) : undefined,
+      untilDate: suspDuration === 'until-date' ? suspUntilDate : undefined,
+      reason: suspReason.trim() || (suspType === 'ban' ? 'Indefinite Ban' : 'Team Suspension'),
+      issuedAt: new Date().toISOString(),
+      active: true,
+    };
+    handlePlayerChange(playerId, { suspension: newSusp });
+    setSuspEditPlayerId(null);
+    showToast(`Issued ${formatSuspensionBadge(newSusp)}`);
+  };
 
   const handleRerollRoster = () => {
     const rng = createRng(`${activeTeam.seedCode}-${Date.now()}`);
@@ -149,12 +184,17 @@ export const RosterEditorPanel: React.FC = () => {
                 {activeSport.attributeLabels.speed.slice(0, 5)}
               </th>
               <th className="px-2 py-2.5 text-center w-14">OVR</th>
+              <th className="px-2 py-2.5 text-center">Discipline</th>
               <th className="px-2 py-2.5 w-10"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/70">
-            {roster.map((player) => (
-              <tr key={player.id} className="hover:bg-slate-900/50">
+            {roster.map((player) => {
+              const suspended = isPlayerSuspended(player);
+              const editingSusp = suspEditPlayerId === player.id;
+              return (
+                <React.Fragment key={player.id}>
+                  <tr className={`hover:bg-slate-900/50 ${suspended ? 'bg-rose-500/5' : ''}`}>
                 <td className="px-3 py-2">
                   <input
                     type="number"
@@ -243,6 +283,40 @@ export const RosterEditorPanel: React.FC = () => {
                   </span>
                 </td>
                 <td className="px-2 py-2 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    {suspended && player.suspension ? (
+                      <>
+                        <span
+                          title={player.suspension.reason}
+                          className="rounded bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-bold text-rose-300 whitespace-nowrap"
+                        >
+                          {formatSuspensionBadge(player.suspension)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handlePlayerChange(player.id, { suspension: null })}
+                          title="Lift suspension / Reinstate player"
+                          className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+                        >
+                          Lift
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSuspEditPlayerId(editingSusp ? null : player.id)
+                        }
+                        title="Suspend or ban player"
+                        className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[10px] text-slate-300 hover:border-rose-500/50 hover:text-rose-300 cursor-pointer whitespace-nowrap"
+                      >
+                        <ShieldAlert className="h-3 w-3" />
+                        {editingSusp ? 'Close' : 'Suspend/Ban'}
+                      </button>
+                    )}
+                  </div>
+                </td>
+                <td className="px-2 py-2 text-center">
                   <button
                     type="button"
                     onClick={() => handleRemovePlayer(player.id)}
@@ -252,7 +326,93 @@ export const RosterEditorPanel: React.FC = () => {
                   </button>
                 </td>
               </tr>
-            ))}
+              {editingSusp && (
+                <tr className="bg-slate-900/90">
+                  <td colSpan={11} className="px-3 py-3">
+                    <div className="flex flex-wrap items-end gap-2.5">
+                      <div className="flex items-center gap-1.5 text-rose-300 font-semibold mr-2">
+                        <Ban className="h-3.5 w-3.5" />
+                        <span>
+                          Discipline #{player.jerseyNumber} {player.firstName} {player.lastName}:
+                        </span>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] text-slate-400">Type</label>
+                        <select
+                          value={suspType}
+                          onChange={(e) =>
+                            setSuspType(e.target.value as 'suspension' | 'ban')
+                          }
+                          className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-white"
+                        >
+                          <option value="suspension">Suspension</option>
+                          <option value="ban">Ban</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-[10px] text-slate-400">Duration</label>
+                        <select
+                          value={suspDuration}
+                          onChange={(e) =>
+                            setSuspDuration(e.target.value as SuspensionDurationType)
+                          }
+                          className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-white"
+                        >
+                          <option value="matches">Custom # of Matches</option>
+                          <option value="until-date">Until Date</option>
+                          <option value="season">Rest of Season</option>
+                          <option value="indefinite">Indefinite</option>
+                        </select>
+                      </div>
+                      {suspDuration === 'matches' && (
+                        <div>
+                          <label className="mb-1 block text-[10px] text-slate-400"># Matches</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={suspGames}
+                            onChange={(e) =>
+                              setSuspGames(Math.max(1, Number(e.target.value) || 1))
+                            }
+                            className="font-mono-code w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-white"
+                          />
+                        </div>
+                      )}
+                      {suspDuration === 'until-date' && (
+                        <div>
+                          <label className="mb-1 block text-[10px] text-slate-400">Until Date</label>
+                          <input
+                            type="date"
+                            value={suspUntilDate}
+                            onChange={(e) => setSuspUntilDate(e.target.value)}
+                            className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-white"
+                          />
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-44">
+                        <label className="mb-1 block text-[10px] text-slate-400">Reason</label>
+                        <input
+                          type="text"
+                          value={suspReason}
+                          onChange={(e) => setSuspReason(e.target.value)}
+                          className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 text-white"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => issueSuspension(player.id)}
+                        className="rounded-lg bg-rose-500 px-3 py-1.5 font-bold text-white hover:bg-rose-400 cursor-pointer"
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
+            );
+            })}
           </tbody>
         </table>
       </div>

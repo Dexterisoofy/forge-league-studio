@@ -23,6 +23,7 @@ import {
   simulateSportScore,
 } from './advantageEngine';
 import { computeStandings, generateRoundRobinMatches } from './leagueEngine';
+import { decrementTeamSuspensions } from './suspensionEngine';
 import { DEFAULT_PRESEASON_CONFIG, generatePreseasonMatches } from './preseasonEngine';
 import {
   assignMatchDates,
@@ -812,6 +813,7 @@ export function advanceCupWinner(
 
   let preseasonPlayerStats = competition.preseasonPlayerStats;
   let regularPlayerStats = competition.regularPlayerStats;
+  let nextTeams = competition.teams;
   const homeTeam = competition.teams.find((t) => t.id === target.homeTeamId);
   const awayTeam = competition.teams.find((t) => t.id === target.awayTeamId);
   if (homeTeam && awayTeam && !wasPlayed) {
@@ -826,6 +828,13 @@ export function advanceCupWinner(
     );
     preseasonPlayerStats = statUpdate.preseasonPlayerStats;
     regularPlayerStats = statUpdate.regularPlayerStats;
+
+    nextTeams = competition.teams.map((t) => {
+      if (t.id === homeTeam.id || t.id === awayTeam.id) {
+        return decrementTeamSuspensions(t, target.scheduledDate);
+      }
+      return t;
+    });
   }
 
   let championId: string | null = null;
@@ -843,6 +852,7 @@ export function advanceCupWinner(
 
   let updated: Competition = {
     ...competition,
+    teams: nextTeams,
     matches,
     preseasonPlayerStats,
     regularPlayerStats,

@@ -381,6 +381,14 @@ export function subscribeSupabaseAuth(
   return () => listener.subscription.unsubscribe();
 }
 
+const resolveOwnerUuid = (
+  existingOwnerId: string | undefined,
+  currentUserId: string
+): string =>
+  existingOwnerId && UUID_REGEX.test(existingOwnerId)
+    ? existingOwnerId
+    : currentUserId;
+
 export async function syncCompetitionToSupabase(
   comp: Competition,
   userId: string
@@ -389,6 +397,7 @@ export async function syncCompetitionToSupabase(
   if (!sb || !UUID_REGEX.test(userId)) return;
 
   const dbId = toDbUuid(comp.id);
+  const ownerId = resolveOwnerUuid(comp.ownerId, userId);
   const slug = comp.sharing?.slug || `comp-${dbId.slice(0, 8)}`;
   const visibility = comp.sharing?.visibility ?? 'private';
 
@@ -396,12 +405,12 @@ export async function syncCompetitionToSupabase(
     await sb.from('competitions').upsert(
       {
         id: dbId,
-        owner_id: toDbUuid(comp.ownerId ?? userId),
+        owner_id: ownerId,
         sport_id: comp.sportId,
         name: comp.name,
         slug,
         visibility,
-        payload: { ...comp, id: dbId, ownerId: toDbUuid(comp.ownerId ?? userId) },
+        payload: { ...comp, id: dbId, ownerId },
         history: comp.history ?? [],
         updated_at: new Date().toISOString(),
       },
@@ -442,6 +451,7 @@ export async function syncSportToSupabase(
   if (!sb || sport.isBuiltIn || !UUID_REGEX.test(userId)) return;
 
   const dbId = toDbUuid(sport.id);
+  const ownerId = resolveOwnerUuid(sport.ownerId, userId);
   const slug = sport.sharing?.slug || `sport-${dbId.slice(0, 8)}`;
   const visibility = sport.sharing?.visibility ?? 'private';
 
@@ -449,12 +459,12 @@ export async function syncSportToSupabase(
     await sb.from('custom_sports').upsert(
       {
         id: dbId,
-        owner_id: toDbUuid(sport.ownerId ?? userId),
+        owner_id: ownerId,
         name: sport.name,
         slug,
         visibility,
         cloned_from_slug: sport.clonedFromSlug ?? null,
-        payload: { ...sport, ownerId: toDbUuid(sport.ownerId ?? userId) },
+        payload: { ...sport, ownerId },
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'id' }
@@ -486,7 +496,131 @@ export async function syncSportToSupabase(
   }
 }
 
+export async function syncTeamToSupabase(
+  team: Team,
+  userId: string
+): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb || !UUID_REGEX.test(userId)) return;
+
+  const dbId = toDbUuid(team.id);
+  const ownerId = resolveOwnerUuid(team.ownerId, userId);
+  try {
+    await sb.from('franchises').upsert(
+      {
+        id: dbId,
+        owner_id: ownerId,
+        sport_id: team.sportId || 'soccer',
+        seed_code: (team.seedCode || 'SEED000000').slice(0, 10),
+        name: team.name,
+        logo_dna: team.logo?.dna || team.id,
+        payload: { ...team, id: dbId, ownerId },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'id' }
+    );
+  } catch {
+    // Ignore transient network / RLS sync errors cleanly
+  }
+}
+
+export async function deleteTeamFromSupabase(teamId: string): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  try {
+    await sb.from('franchises').delete().eq('id', toDbUuid(teamId));
+  } catch {
+    // Ignore transient errors
+  }
+}
+
+export async function deleteCompetitionFromSupabase(compId: string): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  try {
+    await sb.from('competitions').delete().eq('id', toDbUuid(compId));
+  } catch {
+    // Ignore transient errors
+  }
+}
+
+export async function deleteSportFromSupabase(sportId: string): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb) return;
+  try {
+    await sb.from('custom_sports').delete().eq('id', toDbUuid(sportId));
+  } catch {
+    // Ignore transient errors
+  }
+}
+
+export async function syncAllLocalDataToSupabase(
+  userId: string,
+  payload: {
+    vault: Team[];
+    competitions: Competition[];
+    customSports: SportDefinition[];
+  }
+): Promise<void> {
+  const sb = getSupabaseClient();
+  if (!sb || !UUID_REGEX.test(userId)) return;
+
+  const canClaimOrOwn = (ownerId?: string) =>
+    !ownerId || !UUID_REGEX.test(ownerId) || ownerId === userId;
+
+  const teamJobs = payload.vault
+    .filter((t) => canClaimOrOwn(t.ownerId))
+    .map((t) => syncTeamToSupabase({ ...t, ownerId: resolveOwnerUuid(t.ownerId, userId) }, userId));
+
+  const sportJobs = payload.customSports
+    .filter((s) => !s.isBuiltIn && canClaimOrOwn(s.ownerId))
+    .map((s) => syncSportToSupabase({ ...s, ownerId: resolveOwnerUuid(s.ownerId, userId) }, userId));
+
+  const compJobs = payload.competitions
+    .filter((c) => canClaimOrOwn(c.ownerId))
+    .map((c) => syncCompetitionToSupabase({ ...c, ownerId: resolveOwnerUuid(c.ownerId, userId) }, userId));
+
+  await Promise.allSettled([...teamJobs, ...sportJobs, ...compJobs]);
+}
+
 export async function fetchAccessibleCloudResources(): Promise<{
+  vault: Team[];
+  competitions: Competition[];
+  customSports: SportDefinition[];
+}> {
+  const sb = getSupabaseClient();
+  if (!sb) return { vault: [], competitions: [], customSports: [] };
+  try {
+    const [teamRes, compRes, sportRes] = await Promise.all([
+      sb.from('franchises').select('payload'),
+      sb.from('competitions').select('payload, history'),
+      sb.from('custom_sports').select('payload'),
+    ]);
+    const vault = (teamRes.data ?? [])
+      .map((row) => row.payload as Team | undefined)
+      .filter((t): t is Team => Boolean(t));
+    const competitions = (compRes.data ?? [])
+      .map((row): Competition | null => {
+        const comp = row.payload as Competition | undefined;
+        if (!comp) return null;
+        return {
+          ...comp,
+          history: Array.isArray(row.history)
+            ? (row.history as Competition['history'])
+            : comp.history ?? [],
+        };
+      })
+      .filter((c): c is Competition => c !== null);
+    const customSports = (sportRes.data ?? [])
+      .map((row) => row.payload as SportDefinition | undefined)
+      .filter((s): s is SportDefinition => Boolean(s));
+    return { vault, competitions, customSports };
+  } catch {
+    return { vault: [], competitions: [], customSports: [] };
+  }
+}
+
+export async function fetchPublicCommunityResources(): Promise<{
   competitions: Competition[];
   customSports: SportDefinition[];
 }> {
@@ -494,8 +628,8 @@ export async function fetchAccessibleCloudResources(): Promise<{
   if (!sb) return { competitions: [], customSports: [] };
   try {
     const [compRes, sportRes] = await Promise.all([
-      sb.from('competitions').select('payload, history'),
-      sb.from('custom_sports').select('payload'),
+      sb.from('competitions').select('payload, history').eq('visibility', 'public'),
+      sb.from('custom_sports').select('payload').eq('visibility', 'public'),
     ]);
     const competitions = (compRes.data ?? [])
       .map((row): Competition | null => {

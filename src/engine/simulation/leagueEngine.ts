@@ -29,6 +29,7 @@ import {
   DEFAULT_COMPETITION_RULES,
   DEFAULT_SCHEDULE_CONFIG,
 } from './scheduler';
+import { decrementTeamSuspensions } from './suspensionEngine';
 
 /**
  * Generates a complete round-robin schedule using the circle algorithm
@@ -508,9 +509,10 @@ export function applyLeagueMatchResult(
     };
   });
 
-  // Update player stats (separated for preseason vs regular season)
+  // Update player stats & decrement match-based suspensions
   let preseasonPlayerStats = competition.preseasonPlayerStats;
   let regularPlayerStats = competition.regularPlayerStats;
+  let nextTeams = competition.teams;
   const homeTeam = competition.teams.find((t) => t.id === targetMatch.homeTeamId);
   const awayTeam = competition.teams.find((t) => t.id === targetMatch.awayTeamId);
   if (homeTeam && awayTeam && !targetMatch.played) {
@@ -525,10 +527,18 @@ export function applyLeagueMatchResult(
     );
     preseasonPlayerStats = statUpdate.preseasonPlayerStats;
     regularPlayerStats = statUpdate.regularPlayerStats;
+
+    nextTeams = competition.teams.map((t) => {
+      if (t.id === homeTeam.id || t.id === awayTeam.id) {
+        return decrementTeamSuspensions(t, targetMatch.scheduledDate);
+      }
+      return t;
+    });
   }
 
   let updated: Competition = {
     ...competition,
+    teams: nextTeams,
     matches,
     preseasonPlayerStats,
     regularPlayerStats,

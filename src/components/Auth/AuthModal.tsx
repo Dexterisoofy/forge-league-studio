@@ -32,6 +32,7 @@ export const AuthModal: React.FC = () => {
     setAuthModalOpen,
     handleUserAuthenticated,
     handleSignOut,
+    syncNowToCloud,
     showToast,
   } = useApp();
 
@@ -186,14 +187,26 @@ export const AuthModal: React.FC = () => {
                 <User className="h-4 w-4 text-emerald-400" />
                 <span className="font-bold text-white">{user.displayName}</span>
               </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/25 cursor-pointer"
-              >
-                <LogOut className="h-3 w-3" />
-                Sign Out
-              </button>
+              <div className="flex items-center gap-1.5">
+                {cloudStatus.isCloudConfigured && !user.isGuest && (
+                  <button
+                    type="button"
+                    onClick={() => void syncNowToCloud()}
+                    className="inline-flex items-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/15 px-2.5 py-1 text-[11px] font-semibold text-sky-300 hover:bg-sky-500/25 cursor-pointer"
+                  >
+                    <Cloud className="h-3 w-3" />
+                    Sync Cloud
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/25 cursor-pointer"
+                >
+                  <LogOut className="h-3 w-3" />
+                  Sign Out
+                </button>
+              </div>
             </div>
             <div className="text-slate-300">
               {user.email && <div>Email: {user.email}</div>}

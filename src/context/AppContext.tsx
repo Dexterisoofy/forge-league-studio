@@ -30,8 +30,12 @@ import {
 import { computeLogoDna } from '../engine/svg-logo/logoDna';
 import {
   createDefaultShareMetadata,
+  deleteCompetitionFromSupabase,
+  deleteSportFromSupabase,
+  deleteTeamFromSupabase,
   fetchAccessibleCloudResources,
   fetchCompetitionBySlugFromSupabase,
+  fetchPublicCommunityResources,
   fetchSportBySlugFromSupabase,
   getCloudStatus,
   getCurrentUser,
@@ -39,8 +43,10 @@ import {
   parseShareHashRoute,
   signOutUser,
   subscribeSupabaseAuth,
+  syncAllLocalDataToSupabase,
   syncCompetitionToSupabase,
   syncSportToSupabase,
+  syncTeamToSupabase,
   syncUserCloudData,
   type BackendProvider,
 } from '../lib/auth-db';
@@ -141,10 +147,12 @@ interface AppContextValue {
   setAuthModalOpen: (open: boolean) => void;
   handleUserAuthenticated: (profile: UserProfile) => void;
   handleSignOut: () => Promise<void>;
+  syncNowToCloud: () => Promise<void>;
   sharedRoute: { kind: 'league' | 'sport'; slug: string } | null;
   openSharedRoute: (kind: 'league' | 'sport', slug: string) => void;
   clearSharedRoute: () => void;
   communitySports: SportDefinition[];
+  communityCompetitions: Competition[];
   cloneCommunitySport: (sport: SportDefinition) => SportDefinition;
   customSports: SportDefinition[];
   allSports: SportDefinition[];
@@ -205,6 +213,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const cloudStatus = useMemo(() => getCloudStatus(), []);
 
   const [customSports, setCustomSports] = useState<SportDefinition[]>(() => loadCustomSports());
+  const [publicCloudSports, setPublicCloudSports] = useState<SportDefinition[]>([]);
+  const [publicCloudCompetitions, setPublicCloudCompetitions] = useState<Competition[]>([]);
   const [activeSportId, setActiveSportId] = useState<string>('basketball');
   const [registry, setRegistry] = useState<GlobalRegistryState>(() => loadRegistry());
   const [vault, setVault] = useState<Team[]>(() => loadVault());
@@ -266,12 +276,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const publicUserSports = customSports.filter(
       (s) => s.sharing?.visibility === 'public'
     );
-    const seen = new Set(publicUserSports.map((s) => s.id));
-    return [
-      ...publicUserSports,
-      ...SHOWCASE_COMMUNITY_SPORTS.filter((s) => !seen.has(s.id)),
-    ];
-  }, [customSports]);
+    const byId = new Map<string, SportDefinition>();
+    for (const s of publicCloudSports) byId.set(s.id, s);
+    for (const s of publicUserSports) byId.set(s.id, s);
+    for (const s of SHOWCASE_COMMUNITY_SPORTS) {
+      if (!byId.has(s.id)) byId.set(s.id, s);
+    }
+    return Array.from(byId.values());
+  }, [customSports, publicCloudSports]);
+
+  const communityCompetitions = useMemo(() => {
+    const publicLocalComps = competitions.filter(
+      (c) => c.sharing?.visibility === 'public'
+    );
+    const byId = new Map<string, Competition>();
+    for (const c of publicCloudCompetitions) byId.set(c.id, c);
+    for (const c of publicLocalComps) byId.set(c.id, c);
+    return Array.from(byId.values());
+  }, [competitions, publicCloudCompetitions]);
 
   const getSport = useCallback(
     (sportId?: string) => {
@@ -328,12 +350,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [user, vault, competitions, customSports, registry]);
 
-  // Hydrate Supabase OAuth / Magic Link sessions + pull shared cloud competitions & sports
+  // Always load public Community Hub leagues/cups/sports (even when signed out)
+  useEffect(() => {
+    void fetchPublicCommunityResources().then(({ competitions: pubComps, customSports: pubSports }) => {
+      if (pubComps.length > 0) setPublicCloudCompetitions(pubComps);
+      if (pubSports.length > 0) setPublicCloudSports(pubSports);
+    });
+  }, []);
+
+  // Hydrate Supabase OAuth / Magic Link sessions + pull & sync cloud franchises/competitions/sports
   useEffect(() => {
     return subscribeSupabaseAuth((profile) => {
       setUser(profile);
       if (!profile || profile.isGuest) return;
-      void fetchAccessibleCloudResources().then(({ competitions: cloudComps, customSports: cloudSports }) => {
+
+      void (async () => {
+        const currentVault = loadVault();
+        const currentComps = loadCompetitions();
+        const currentSports = loadCustomSports();
+
+        // Push any pre-existing unowned/owned local items to Supabase first
+        await syncAllLocalDataToSupabase(profile.id, {
+          vault: currentVault,
+          competitions: currentComps,
+          customSports: currentSports,
+        });
+
+        // Pull all accessible cloud items (owned + collaborated + public/unlisted)
+        const {
+          vault: cloudVault,
+          competitions: cloudComps,
+          customSports: cloudSports,
+        } = await fetchAccessibleCloudResources();
+
+        if (cloudVault.length > 0) {
+          setVault((prev) => {
+            const byId = new Map(prev.map((t) => [t.id, t]));
+            for (const t of cloudVault) byId.set(t.id, t);
+            return Array.from(byId.values());
+          });
+        }
         if (cloudSports.length > 0) {
           setCustomSports((prev) => {
             const byId = new Map(prev.map((s) => [s.id, s]));
@@ -348,7 +404,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             return Array.from(byId.values());
           });
         }
-      });
+      })();
     });
   }, []);
 
@@ -412,9 +468,87 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
       showToast(`Signed in as ${profile.displayName}`);
+      if (!profile.isGuest) {
+        void (async () => {
+          const currentVault = loadVault();
+          const currentComps = loadCompetitions();
+          const currentSports = loadCustomSports();
+          await syncAllLocalDataToSupabase(profile.id, {
+            vault: currentVault,
+            competitions: currentComps,
+            customSports: currentSports,
+          });
+          const {
+            vault: cloudVault,
+            competitions: cloudComps,
+            customSports: cloudSports,
+          } = await fetchAccessibleCloudResources();
+          if (cloudVault.length > 0) {
+            setVault((prev) => {
+              const byId = new Map(prev.map((t) => [t.id, t]));
+              for (const t of cloudVault) byId.set(t.id, t);
+              return Array.from(byId.values());
+            });
+          }
+          if (cloudSports.length > 0) {
+            setCustomSports((prev) => {
+              const byId = new Map(prev.map((s) => [s.id, s]));
+              for (const s of cloudSports) byId.set(s.id, s);
+              return Array.from(byId.values());
+            });
+          }
+          if (cloudComps.length > 0) {
+            setCompetitions((prev) => {
+              const byId = new Map(prev.map((c) => [c.id, c]));
+              for (const c of cloudComps) byId.set(c.id, c);
+              return Array.from(byId.values());
+            });
+          }
+        })();
+      }
     },
     [showToast]
   );
+
+  const syncNowToCloud = useCallback(async () => {
+    if (!user || user.isGuest) {
+      showToast('Sign in to sync with cloud');
+      return;
+    }
+    await syncAllLocalDataToSupabase(user.id, {
+      vault,
+      competitions,
+      customSports,
+    });
+    const [accessible, pub] = await Promise.all([
+      fetchAccessibleCloudResources(),
+      fetchPublicCommunityResources(),
+    ]);
+    if (accessible.vault.length > 0) {
+      setVault((prev) => {
+        const byId = new Map(prev.map((t) => [t.id, t]));
+        for (const t of accessible.vault) byId.set(t.id, t);
+        return Array.from(byId.values());
+      });
+    }
+    if (accessible.customSports.length > 0) {
+      setCustomSports((prev) => {
+        const byId = new Map(prev.map((s) => [s.id, s]));
+        for (const s of accessible.customSports) byId.set(s.id, s);
+        return Array.from(byId.values());
+      });
+    }
+    if (accessible.competitions.length > 0) {
+      setCompetitions((prev) => {
+        const byId = new Map(prev.map((c) => [c.id, c]));
+        for (const c of accessible.competitions) byId.set(c.id, c);
+        return Array.from(byId.values());
+      });
+    }
+    setPublicCloudCompetitions(pub.competitions);
+    setPublicCloudSports(pub.customSports);
+    showToast('Cloud sync complete across teams, sports & competitions');
+  }, [user, vault, competitions, customSports, showToast]);
 
   const handleSignOut = useCallback(async () => {
     await signOutUser();
@@ -504,6 +638,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sharing: createDefaultShareMetadata(),
       };
       setCustomSports((prev) => [cloned, ...prev]);
+      if (user && !user.isGuest) {
+        void syncSportToSupabase(cloned, user.id);
+      }
       setActiveSportId(cloned.id);
       showToast(`Imported "${cloned.name}" into your Sport Library`);
       return cloned;
@@ -514,12 +651,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteCustomSport = useCallback(
     (sportId: string) => {
       setCustomSports((prev) => prev.filter((s) => s.id !== sportId));
+      if (user && !user.isGuest) {
+        void deleteSportFromSupabase(sportId);
+      }
       if (activeSportId === sportId) {
         setActiveSportId('soccer');
       }
       showToast('Deleted custom sport');
     },
-    [activeSportId, showToast]
+    [activeSportId, user, showToast]
   );
 
   const updateActiveLogo = useCallback((patch: Partial<LogoConfig>) => {
@@ -611,6 +751,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
         return [normalized, ...prev];
       });
+      if (user && !user.isGuest) {
+        void syncTeamToSupabase(normalized, user.id);
+      }
       const nextReg = registerTeam(registry, normalized, 'studio');
       setRegistry(nextReg);
       showToast(`Saved "${normalized.name}" to Franchise Vault`);
@@ -625,9 +768,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const removeFromVault = useCallback(
     (teamId: string) => {
       setVault((prev) => prev.filter((t) => t.id !== teamId));
+      if (user && !user.isGuest) {
+        void deleteTeamFromSupabase(teamId);
+      }
       showToast('Removed team from Franchise Vault');
     },
-    [showToast]
+    [user, showToast]
   );
 
   const editVaultTeam = useCallback((team: Team) => {
@@ -669,9 +815,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteCompetition = useCallback(
     (compId: string) => {
       setCompetitions((prev) => prev.filter((c) => c.id !== compId));
+      if (user && !user.isGuest) {
+        void deleteCompetitionFromSupabase(compId);
+      }
       showToast('Deleted competition');
     },
-    [showToast]
+    [user, showToast]
   );
 
   const registerNewTeam = useCallback(
@@ -791,6 +940,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setRegistry(reg);
+      if (user && !user.isGuest) {
+        void syncAllLocalDataToSupabase(user.id, {
+          vault: importedTeams.map((t) => ({ ...t, ownerId: t.ownerId ?? user.id })),
+          competitions: importedComps.map((c) => ({ ...c, ownerId: c.ownerId ?? user.id })),
+          customSports: importedSports.map((s) => ({ ...s, ownerId: s.ownerId ?? user.id })),
+        });
+      }
       showToast(
         `Imported ${teamsAdded} team(s), ${compsAdded} competition(s), ${sportsAdded} sport(s)`
       );
@@ -810,10 +966,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthModalOpen,
         handleUserAuthenticated,
         handleSignOut,
+        syncNowToCloud,
         sharedRoute,
         openSharedRoute,
         clearSharedRoute,
         communitySports,
+        communityCompetitions,
         cloneCommunitySport,
         customSports,
         allSports,

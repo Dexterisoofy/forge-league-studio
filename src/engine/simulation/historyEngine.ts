@@ -20,6 +20,7 @@ export function pushCompetitionSnapshot(
     id: createUuid(),
     label,
     timestamp: new Date().toISOString(),
+    teams: cloneData(competition.teams),
     matches: cloneData(competition.matches),
     championId: competition.championId,
     appliedAdvantages: cloneData(competition.appliedAdvantages ?? []),
@@ -48,6 +49,7 @@ export function undoLastSimulation(competition: Competition): Competition {
   const latest = history[history.length - 1];
   return {
     ...competition,
+    teams: latest.teams ? cloneData(latest.teams) : competition.teams,
     matches: cloneData(latest.matches),
     championId: latest.championId,
     appliedAdvantages: cloneData(latest.appliedAdvantages),
@@ -74,6 +76,7 @@ export function restoreSnapshotById(
   const target = history[idx];
   return {
     ...competition,
+    teams: target.teams ? cloneData(target.teams) : competition.teams,
     matches: cloneData(target.matches),
     championId: target.championId,
     appliedAdvantages: cloneData(target.appliedAdvantages),

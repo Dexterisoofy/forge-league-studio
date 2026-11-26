@@ -9,6 +9,7 @@ import type {
 } from '../../types';
 import { createUuid } from '../prng';
 import { BUILT_IN_SPORTS } from '../sports/builtInSports';
+import { getEffectiveTeamRating, isPlayerSuspended } from './suspensionEngine';
 
 export const PRESET_ADVANTAGE_RULES: AdvantageRule[] = [
   {
@@ -352,8 +353,10 @@ export function simulateSportScore(
   homeRatingMultiplier = 1,
   awayRatingMultiplier = 1
 ): { homeScore: number; awayScore: number; scoringSummary: string[] } {
-  const homeEff = homeTeam.overallRating * homeRatingMultiplier;
-  const awayEff = awayTeam.overallRating * awayRatingMultiplier;
+  const homeEff =
+    getEffectiveTeamRating(homeTeam, sport.activeLineupSize) * homeRatingMultiplier;
+  const awayEff =
+    getEffectiveTeamRating(awayTeam, sport.activeLineupSize) * awayRatingMultiplier;
   const ratingDiff = (homeEff - awayEff) / 14;
 
   const startingScore = sport.startingScore ?? 0;
@@ -525,9 +528,10 @@ export function accumulatePlayerMatchStats(
     teamScore: number,
     oppScore: number
   ) => {
-    const starters = [...team.roster]
+    const eligibleRoster = team.roster.filter((p) => !isPlayerSuspended(p));
+    const starters = [...eligibleRoster]
       .sort((a, b) => b.overall - a.overall)
-      .slice(0, Math.max(1, Math.min(sport.activeLineupSize, team.roster.length)));
+      .slice(0, Math.max(0, Math.min(sport.activeLineupSize, eligibleRoster.length)));
 
     for (const player of starters) {
       const prev = targetMap[player.id] ?? {
