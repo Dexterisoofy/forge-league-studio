@@ -365,9 +365,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!profile || profile.isGuest) return;
 
       void (async () => {
-        const currentVault = loadVault();
-        const currentComps = loadCompetitions();
-        const currentSports = loadCustomSports();
+        // Claim unowned or legacy local usr-* items under the real Supabase profile ID
+        const claimLegacy = <T extends { ownerId?: string; ownerName?: string }>(items: T[]): T[] =>
+          !profile.id.startsWith('usr-')
+            ? items.map((item) =>
+                !item.ownerId || item.ownerId.startsWith('usr-')
+                  ? { ...item, ownerId: profile.id, ownerName: profile.displayName }
+                  : item
+              )
+            : items;
+
+        const currentVault = claimLegacy(loadVault());
+        const currentComps = claimLegacy(loadCompetitions());
+        const currentSports = claimLegacy(loadCustomSports());
+
+        setVault(currentVault);
+        setCompetitions(currentComps);
+        setCustomSports(currentSports);
 
         // Push any pre-existing unowned/owned local items to Supabase first
         await syncAllLocalDataToSupabase(profile.id, {
@@ -470,9 +484,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showToast(`Signed in as ${profile.displayName}`);
       if (!profile.isGuest) {
         void (async () => {
-          const currentVault = loadVault();
-          const currentComps = loadCompetitions();
-          const currentSports = loadCustomSports();
+          const claimLegacy = <T extends { ownerId?: string; ownerName?: string }>(items: T[]): T[] =>
+            !profile.id.startsWith('usr-')
+              ? items.map((item) =>
+                  !item.ownerId || item.ownerId.startsWith('usr-')
+                    ? { ...item, ownerId: profile.id, ownerName: profile.displayName }
+                    : item
+                )
+              : items;
+          const currentVault = claimLegacy(loadVault());
+          const currentComps = claimLegacy(loadCompetitions());
+          const currentSports = claimLegacy(loadCustomSports());
+          setVault(currentVault);
+          setCompetitions(currentComps);
+          setCustomSports(currentSports);
           await syncAllLocalDataToSupabase(profile.id, {
             vault: currentVault,
             competitions: currentComps,

@@ -109,6 +109,11 @@ export function resolveUserPermissions(
     return { ...DEFAULT_OWNER_PERMISSIONS };
   }
 
+  // Legacy local-mode owner IDs ("usr-...") are editable once signed in on the same device
+  if (resource.ownerId.startsWith('usr-') && (!user || !user.id.startsWith('usr-'))) {
+    return { ...DEFAULT_OWNER_PERMISSIONS };
+  }
+
   if (user && resource.ownerId === user.id) {
     return { ...DEFAULT_OWNER_PERMISSIONS };
   }
