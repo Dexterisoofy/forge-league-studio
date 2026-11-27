@@ -127,7 +127,7 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
   return (
     <div className="grid gap-6 lg:grid-cols-12">
       {/* Club Sidebar */}
-      <div className="lg:col-span-4 rounded-2xl border border-slate-800 bg-[#131b2c] p-4 space-y-3">
+      <div className="lg:col-span-3 rounded-2xl border border-slate-800 bg-[#131b2c] p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="flex items-center gap-2 font-display text-lg font-bold tracking-wide text-white uppercase">
             <Users className="h-4 w-4 text-amber-400" />
@@ -191,7 +191,7 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
       </div>
 
       {/* Selected Team Roster Detail */}
-      <div className="lg:col-span-8 rounded-2xl border border-slate-800 bg-[#131b2c] p-5 space-y-4">
+      <div className="lg:col-span-9 rounded-2xl border border-slate-800 bg-[#131b2c] p-5 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
           <div className="flex items-center gap-4">
             <LogoSvg config={selectedTeam.logo} size={64} />
@@ -361,34 +361,61 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
           </div>
         </div>
 
+        {/* Role Guide above Player List */}
+        {rotation?.isBasketballRotation && (
+          <div className="rounded-xl border border-slate-800/90 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-300 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className="font-bold uppercase tracking-wider text-slate-400 text-[10px]">
+              Role Guide:
+            </span>
+            <span>
+              <strong className="text-emerald-300 font-mono-code">S1 · BH</strong> Primary Ball-Handler (Playmaking)
+            </span>
+            <span>
+              <strong className="text-emerald-300 font-mono-code">S2 · OB</strong> Off-Ball Guard/Wing (Scoring)
+            </span>
+            <span>
+              <strong className="text-emerald-300 font-mono-code">S3 · WG</strong> Perimeter Wing (6&apos;6&quot;+)
+            </span>
+            <span>
+              <strong className="text-emerald-300 font-mono-code">S4 · FW</strong> Forward (6&apos;8&quot;+)
+            </span>
+            <span>
+              <strong className="text-emerald-300 font-mono-code">S5 · BG</strong> Center / Big (6&apos;9&quot;+ or 6&apos;8&quot; Small-Ball)
+            </span>
+            <span>
+              <strong className="text-sky-300 font-mono-code">6th Man</strong> Top Bench Guard/Scorer
+            </span>
+          </div>
+        )}
+
         {/* Roster Table */}
         <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/60">
-          <table className="w-full min-w-[780px] text-left text-xs">
+          <table className="w-full text-left text-[11px]">
             <thead className="border-b border-slate-800 bg-slate-900/90 text-[10px] font-semibold text-slate-400 uppercase">
               <tr>
-                <th className="px-3 py-2.5 w-12">#</th>
-                <th className="px-3 py-2.5">Player</th>
-                <th className="px-2.5 py-2.5 w-16">Pos</th>
-                <th className="px-2.5 py-2.5 w-12 text-center">Age</th>
-                <th className="px-2.5 py-2.5">Ht / Wt</th>
-                <th className="px-2.5 py-2.5">Archetype</th>
-                <th className="px-2 py-2.5 text-center" title={sport.attributeLabels.offense}>
+                <th className="px-2 py-2.5 w-10">#</th>
+                <th className="px-2 py-2.5">Player</th>
+                <th className="px-1.5 py-2.5 w-12">Pos</th>
+                <th className="px-1.5 py-2.5 w-10 text-center">Age</th>
+                <th className="px-2 py-2.5">Ht / Wt</th>
+                <th className="px-2 py-2.5">Archetype</th>
+                <th className="px-1.5 py-2.5 text-center" title={sport.attributeLabels.offense}>
                   {sport.attributeLabels.offense.slice(0, 5)}
                 </th>
-                <th className="px-2 py-2.5 text-center" title={sport.attributeLabels.defense}>
+                <th className="px-1.5 py-2.5 text-center" title={sport.attributeLabels.defense}>
                   {sport.attributeLabels.defense.slice(0, 5)}
                 </th>
-                <th className="px-2 py-2.5 text-center" title={sport.attributeLabels.speed}>
+                <th className="px-1.5 py-2.5 text-center" title={sport.attributeLabels.speed}>
                   {sport.attributeLabels.speed.slice(0, 5)}
                 </th>
-                <th className="px-2 py-2.5 text-center" title={sport.attributeLabels.stamina}>
+                <th className="px-1.5 py-2.5 text-center" title={sport.attributeLabels.stamina}>
                   {sport.attributeLabels.stamina.slice(0, 5)}
                 </th>
-                <th className="px-2 py-2.5 text-center" title={sport.attributeLabels.iq}>
+                <th className="px-1.5 py-2.5 text-center" title={sport.attributeLabels.iq}>
                   {sport.attributeLabels.iq.slice(0, 5)}
                 </th>
-                <th className="px-2.5 py-2.5 text-center w-14">OVR</th>
-                <th className="px-3 py-2.5">Status</th>
+                <th className="px-1.5 py-2.5 text-center w-12">OVR</th>
+                <th className="px-2 py-2.5">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70">
@@ -410,10 +437,10 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
                             : 'hover:bg-slate-900/50'
                     }
                   >
-                    <td className="px-3 py-2 font-mono-code font-bold text-amber-300">
+                    <td className="px-2 py-2 font-mono-code font-bold text-amber-300 whitespace-nowrap">
                       #{player.jerseyNumber}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-2 py-2 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-white">
                           {player.firstName} {player.lastName}
@@ -421,49 +448,51 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
                         {starterInfo && (
                           <span
                             title={`${starterInfo.role} (Fit ${starterInfo.fitScore.toFixed(1)})`}
-                            className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 uppercase"
+                            className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 uppercase whitespace-nowrap shrink-0"
                           >
-                            <Sparkles className="h-2.5 w-2.5" />
+                            <Sparkles className="h-2.5 w-2.5 shrink-0" />
                             {starterInfo.shortLabel}
                           </span>
                         )}
                         {isSixthMan && (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-bold text-sky-300 uppercase">
+                          <span className="inline-flex items-center gap-0.5 rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-bold text-sky-300 uppercase whitespace-nowrap shrink-0">
                             6th Man
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-2.5 py-2">
+                    <td className="px-1.5 py-2 whitespace-nowrap">
                       <span className="rounded bg-slate-800 px-1.5 py-0.5 font-semibold text-sky-300">
                         {player.position}
                       </span>
                     </td>
-                    <td className="px-2.5 py-2 text-center font-mono-code text-slate-300">
+                    <td className="px-1.5 py-2 text-center font-mono-code text-slate-300">
                       {player.age}
                     </td>
-                    <td className="px-2.5 py-2 text-slate-400 whitespace-nowrap">
+                    <td className="px-2 py-2 text-slate-400 whitespace-nowrap">
                       {player.height} · {player.weight}lb
                     </td>
-                    <td className="px-2.5 py-2 text-slate-300">{player.archetype}</td>
-                    <td className="px-2 py-2 text-center font-mono-code text-slate-300">
+                    <td className="px-2 py-2 text-slate-300 whitespace-nowrap">
+                      {player.archetype}
+                    </td>
+                    <td className="px-1.5 py-2 text-center font-mono-code text-slate-300">
                       {player.offense}
                     </td>
-                    <td className="px-2 py-2 text-center font-mono-code text-slate-300">
+                    <td className="px-1.5 py-2 text-center font-mono-code text-slate-300">
                       {player.defense}
                     </td>
-                    <td className="px-2 py-2 text-center font-mono-code text-slate-300">
+                    <td className="px-1.5 py-2 text-center font-mono-code text-slate-300">
                       {player.speed}
                     </td>
-                    <td className="px-2 py-2 text-center font-mono-code text-slate-300">
+                    <td className="px-1.5 py-2 text-center font-mono-code text-slate-300">
                       {player.stamina}
                     </td>
-                    <td className="px-2 py-2 text-center font-mono-code text-slate-300">
+                    <td className="px-1.5 py-2 text-center font-mono-code text-slate-300">
                       {player.iq}
                     </td>
-                    <td className="px-2.5 py-2 text-center">
+                    <td className="px-1.5 py-2 text-center">
                       <span
-                        className={`font-mono-code inline-block min-w-8 rounded px-1.5 py-0.5 font-bold ${
+                        className={`font-mono-code inline-block min-w-7 rounded px-1.5 py-0.5 font-bold ${
                           player.overall >= 82
                             ? 'bg-emerald-500/20 text-emerald-300'
                             : player.overall >= 72
@@ -474,7 +503,7 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
                         {player.overall}
                       </span>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
+                    <td className="px-2 py-2 whitespace-nowrap">
                       {suspended && player.suspension ? (
                         <span
                           title={player.suspension.reason}
