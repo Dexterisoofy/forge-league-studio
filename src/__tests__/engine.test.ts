@@ -70,9 +70,14 @@ import {
 import { PATTERNS } from '../engine/svg-logo/patterns';
 import { buildLogoSvgString } from '../engine/svg-logo/renderLogoSvg';
 import { SHIELDS } from '../engine/svg-logo/shields';
+import {
+  parseHeightInches,
+  selectTeamRotation,
+} from '../engine/simulation/lineupEngine';
 import type {
   AdvantageRule,
   CompetitionRules,
+  Player,
   PreseasonConfig,
   ScheduleConfig,
   SportDefinition,
@@ -971,5 +976,124 @@ describe('Simulation History, Granular Permissions, Sharing & Env Config', () =>
     expect(playedRegular.length).toBe(1);
     expect(playedRegular[0].id).toBe(firstId);
     expect(addedPre.length).toBeGreaterThan(0);
+  });
+});
+
+describe('Modern NBA Starting Lineup & Sixth Man Rotation', () => {
+  const bballSport = BUILT_IN_SPORTS.find((s) => s.id === 'basketball')!;
+
+  const makeBballPlayer = (
+    id: string,
+    pos: 'PG' | 'SG' | 'SF' | 'PF' | 'C',
+    height: string,
+    overall: number,
+    archetype = 'Two-Way Wing',
+    attrs: Partial<Pick<Player, 'offense' | 'defense' | 'speed' | 'stamina' | 'iq'>> = {}
+  ): Player => ({
+    id,
+    firstName: id,
+    lastName: 'Player',
+    jerseyNumber: Number(id.replace(/\D/g, '')) || 1,
+    position: pos,
+    age: 25,
+    height,
+    weight: 215,
+    archetype,
+    overall,
+    offense: attrs.offense ?? overall,
+    defense: attrs.defense ?? overall,
+    speed: attrs.speed ?? overall,
+    stamina: attrs.stamina ?? overall,
+    iq: attrs.iq ?? overall,
+  });
+
+  it('enforces NBA positional/size guardrails, Slot 1-5 ordering, and Sixth Man designation', () => {
+    const { teams } = makeUniqueTeams(1, bballSport);
+    // 3 small guards all 85+ OVR, plus balanced wings/forwards/big in the 80-83 OVR range (<= 14 gap)
+    const customRoster: Player[] = [
+      makeBballPlayer('p1', 'PG', `6'2"`, 88, 'Floor General', { iq: 94, offense: 85 }),
+      makeBballPlayer('p2', 'PG', `6'3"`, 86, 'Scoring Guard', { offense: 92, iq: 84 }),
+      makeBballPlayer('p3', 'SG', `6'4"`, 85, 'Shot Creator', { offense: 91 }),
+      makeBballPlayer('p4', 'SF', `6'7"`, 83, '3-and-D Wing', { defense: 88, speed: 86 }),
+      makeBballPlayer('p5', 'PF', `6'8"`, 81, 'Stretch Four', { defense: 84, speed: 82, stamina: 86 }),
+      makeBballPlayer('p6', 'C', `6'11"`, 82, 'Rim Protector', { defense: 90, stamina: 85 }),
+      makeBballPlayer('p7', 'PF', `6'9"`, 76, 'Enforcer'),
+      makeBballPlayer('p8', 'SF', `6'6"`, 75, 'Slasher'),
+    ];
+
+    const team = { ...teams[0], playstyle: 'Pace & Space', roster: customRoster };
+    const rotation = selectTeamRotation(team, bballSport);
+
+    expect(rotation.isBasketballRotation).toBe(true);
+    expect(rotation.usedThreeGuardFallback).toBe(false);
+    expect(rotation.starters.map((s) => s.slot)).toEqual([1, 2, 3, 4, 5]);
+
+    const starterPlayers = rotation.starters.map((s) => s.player);
+    // Guardrail: at most 2 guards < 6'6"
+    const smallGuards = starterPlayers.filter(
+      (p) => (p.position === 'PG' || p.position === 'SG') && parseHeightInches(p.height) < 78
+    );
+    expect(smallGuards.length).toBeLessThanOrEqual(2);
+
+    // Guardrail: at least 2 wings/forwards >= 6'6" in [SG, SF, PF]
+    const wings = starterPlayers.filter(
+      (p) => ['SG', 'SF', 'PF'].includes(p.position) && parseHeightInches(p.height) >= 78
+    );
+    expect(wings.length).toBeGreaterThanOrEqual(2);
+
+    // Guardrail: at least 1 frontcourt big >= 6'9" in [PF, C]
+    const bigs = starterPlayers.filter(
+      (p) => ['PF', 'C'].includes(p.position) && parseHeightInches(p.height) >= 81
+    );
+    expect(bigs.length).toBeGreaterThanOrEqual(1);
+
+    // Guardrail: never 3 of same primary position
+    const counts = new Map<string, number>();
+    for (const p of starterPlayers) {
+      counts.set(p.position, (counts.get(p.position) ?? 0) + 1);
+    }
+    expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
+
+    // Highest-OVR non-starting guard/scorer (86/85 guard) becomes Sixth Man
+    expect(rotation.sixthMan).not.toBeNull();
+    expect(['p2', 'p3']).toContain(rotation.sixthMan!.id);
+  });
+
+  it('allows a 6\'8" PF/C center under the Small-Ball Switch scheme', () => {
+    const { teams } = makeUniqueTeams(1, bballSport);
+    const customRoster: Player[] = [
+      makeBballPlayer('p1', 'PG', `6'3"`, 85, 'Floor General', { iq: 90 }),
+      makeBballPlayer('p2', 'SG', `6'5"`, 84, '3-and-D Wing', { offense: 88 }),
+      makeBballPlayer('p3', 'SF', `6'7"`, 83, 'Two-Way Wing', { defense: 87, speed: 85 }),
+      makeBballPlayer('p4', 'PF', `6'8"`, 82, 'Stretch Four', { defense: 85, stamina: 86 }),
+      makeBballPlayer('p5', 'C', `6'8"`, 84, 'Pick-and-Roll Anchor', { defense: 88 }),
+      makeBballPlayer('p6', 'C', `7'0"`, 72, 'Post Scorer'),
+    ];
+
+    const team = { ...teams[0], playstyle: 'Small-Ball Switch', roster: customRoster };
+    const rotation = selectTeamRotation(team, bballSport);
+    const slot5 = rotation.starters.find((s) => s.slot === 5)!;
+    expect(slot5.player.id).toBe('p5');
+    expect(parseHeightInches(slot5.player.height)).toBe(80);
+  });
+
+  it('triggers the 3-guard fallback when guard talent outweighs frontcourt by > 14 OVR', () => {
+    const { teams } = makeUniqueTeams(1, bballSport);
+    const customRoster: Player[] = [
+      makeBballPlayer('p1', 'PG', `6'2"`, 92, 'Floor General', { iq: 95 }),
+      makeBballPlayer('p2', 'PG', `6'3"`, 91, 'Scoring Guard', { offense: 94 }),
+      makeBballPlayer('p3', 'SG', `6'4"`, 90, 'Shot Creator', { offense: 92 }),
+      makeBballPlayer('p4', 'SF', `6'7"`, 66, 'Slasher'),
+      makeBballPlayer('p5', 'PF', `6'8"`, 65, 'Enforcer'),
+      makeBballPlayer('p6', 'C', `6'11"`, 64, 'Rim Protector'),
+    ];
+
+    const team = { ...teams[0], playstyle: 'Run & Gun', roster: customRoster };
+    const rotation = selectTeamRotation(team, bballSport);
+    expect(rotation.usedThreeGuardFallback).toBe(true);
+    const starterIds = new Set(rotation.starters.map((s) => s.player.id));
+    expect(starterIds.has('p1')).toBe(true);
+    expect(starterIds.has('p2')).toBe(true);
+    expect(starterIds.has('p3')).toBe(true);
   });
 });

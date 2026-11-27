@@ -9,6 +9,7 @@ import {
   Wand2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { selectTeamRotation } from '../../engine/simulation/lineupEngine';
 import {
   formatSuspensionBadge,
   getEffectiveTeamRating,
@@ -62,30 +63,55 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
     ? vault.some((v) => v.id === selectedTeam.id || v.seedCode === selectedTeam.seedCode)
     : false;
 
-  const starterIds = useMemo(() => {
-    if (!selectedTeam) return new Set<string>();
-    const eligible = selectedTeam.roster.filter((p) => !isPlayerSuspended(p));
-    const top = [...eligible]
-      .sort((a, b) => b.overall - a.overall)
-      .slice(0, Math.min(sport.activeLineupSize, eligible.length));
-    return new Set(top.map((p) => p.id));
-  }, [selectedTeam, sport.activeLineupSize]);
+  const rotation = useMemo(() => {
+    if (!selectedTeam) return null;
+    return selectTeamRotation(selectedTeam, sport);
+  }, [selectedTeam, sport]);
+
+  const starterSlotMap = useMemo(() => {
+    const map = new Map<string, { slot: number; role: string; shortLabel: string; fitScore: number }>();
+    if (!rotation) return map;
+    for (const s of rotation.starters) {
+      map.set(s.player.id, {
+        slot: s.slot,
+        role: s.role,
+        shortLabel: s.shortLabel,
+        fitScore: s.fitScore,
+      });
+    }
+    return map;
+  }, [rotation]);
+
+  const sixthManId = rotation?.sixthMan?.id ?? null;
 
   const displayedRoster = useMemo(() => {
     if (!selectedTeam) return [];
     const q = playerQuery.trim().toLowerCase();
-    const list = selectedTeam.roster.filter(
-      (p) =>
-        !q ||
-        `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
-        p.position.toLowerCase().includes(q) ||
-        p.archetype.toLowerCase().includes(q) ||
-        String(p.jerseyNumber).includes(q)
-    );
-    return [...list].sort((a, b) =>
-      sortBy === 'jersey' ? a.jerseyNumber - b.jerseyNumber : b.overall - a.overall
-    );
-  }, [selectedTeam, playerQuery, sortBy]);
+    const matchesQuery = (p: typeof selectedTeam.roster[number]) =>
+      !q ||
+      `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) ||
+      p.position.toLowerCase().includes(q) ||
+      p.archetype.toLowerCase().includes(q) ||
+      String(p.jerseyNumber).includes(q);
+
+    if (sortBy === 'jersey') {
+      return selectedTeam.roster
+        .filter(matchesQuery)
+        .sort((a, b) => a.jerseyNumber - b.jerseyNumber);
+    }
+
+    // Preserve positional order (Slot 1 -> Slot 5), then 6th Man, then remaining bench by OVR
+    return selectedTeam.roster.filter(matchesQuery).sort((a, b) => {
+      const slotA = starterSlotMap.get(a.id)?.slot;
+      const slotB = starterSlotMap.get(b.id)?.slot;
+      if (slotA !== undefined && slotB !== undefined) return slotA - slotB;
+      if (slotA !== undefined) return -1;
+      if (slotB !== undefined) return 1;
+      if (a.id === sixthManId && b.id !== sixthManId) return -1;
+      if (b.id === sixthManId && a.id !== sixthManId) return 1;
+      return b.overall - a.overall;
+    });
+  }, [selectedTeam, playerQuery, sortBy, starterSlotMap, sixthManId]);
 
   if (!selectedTeam) {
     return (
@@ -230,12 +256,68 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
           </div>
         </div>
 
+        {/* Starting Rotation Bar (Positional Slot 1-5 + Sixth Man) */}
+        {rotation && rotation.starters.length > 0 && (
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+              <span className="font-bold uppercase tracking-wider text-emerald-300">
+                {rotation.isBasketballRotation
+                  ? `Starting 5 Rotation (${selectedTeam.playstyle})`
+                  : 'Active Starting Lineup'}
+              </span>
+              {rotation.usedThreeGuardFallback && (
+                <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                  3-Guard Talent Override
+                </span>
+              )}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6 text-[11px]">
+              {rotation.starters.map((s) => (
+                <div
+                  key={s.player.id}
+                  title={`${s.role} · Fit ${s.fitScore} (OVR ${s.player.overall} + Scheme ${s.schemeBonus} + Role ${s.roleBonus.toFixed(1)})`}
+                  className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5"
+                >
+                  <div className="flex items-center justify-between text-[10px] font-bold text-emerald-300">
+                    <span>{s.shortLabel}</span>
+                    <span>{s.player.position} · {s.player.height}</span>
+                  </div>
+                  <div className="truncate font-semibold text-white">
+                    #{s.player.jerseyNumber} {s.player.lastName}
+                  </div>
+                  <div className="text-[10px] text-slate-400 truncate">
+                    OVR {s.player.overall} · Fit {s.fitScore.toFixed(1)}
+                  </div>
+                </div>
+              ))}
+              {rotation.sixthMan && (
+                <div
+                  title="Designated Sixth Man (Highest-OVR bench guard/scorer)"
+                  className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5"
+                >
+                  <div className="flex items-center justify-between text-[10px] font-bold text-sky-300">
+                    <span>6TH MAN</span>
+                    <span>{rotation.sixthMan.position} · {rotation.sixthMan.height}</span>
+                  </div>
+                  <div className="truncate font-semibold text-white">
+                    #{rotation.sixthMan.jerseyNumber} {rotation.sixthMan.lastName}
+                  </div>
+                  <div className="text-[10px] text-slate-400 truncate">
+                    OVR {rotation.sixthMan.overall} · {rotation.sixthMan.archetype}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Squad Controls */}
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 text-slate-400">
             <span>
               <strong className="text-white">{selectedTeam.roster.length}</strong> Players ·{' '}
-              <strong className="text-emerald-300">{starterIds.size}</strong> Active Starters
+              <strong className="text-emerald-300">{starterSlotMap.size}</strong> Active Starters
+              {sixthManId ? ' · 1 Sixth Man' : ''}
             </span>
             {suspendedCount > 0 && (
               <span className="inline-flex items-center gap-1 rounded bg-rose-500/15 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
@@ -312,7 +394,9 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
             <tbody className="divide-y divide-slate-800/70">
               {displayedRoster.map((player) => {
                 const suspended = isPlayerSuspended(player);
-                const isStarter = starterIds.has(player.id);
+                const starterInfo = starterSlotMap.get(player.id);
+                const isStarter = Boolean(starterInfo);
+                const isSixthMan = player.id === sixthManId;
                 return (
                   <tr
                     key={player.id}
@@ -321,7 +405,9 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
                         ? 'bg-rose-500/5'
                         : isStarter
                           ? 'bg-emerald-500/5 hover:bg-slate-900/60'
-                          : 'hover:bg-slate-900/50'
+                          : isSixthMan
+                            ? 'bg-sky-500/5 hover:bg-slate-900/60'
+                            : 'hover:bg-slate-900/50'
                     }
                   >
                     <td className="px-3 py-2 font-mono-code font-bold text-amber-300">
@@ -332,10 +418,18 @@ export const CompetitionRostersPanel: React.FC<CompetitionRostersPanelProps> = (
                         <span className="font-semibold text-white">
                           {player.firstName} {player.lastName}
                         </span>
-                        {isStarter && (
-                          <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 uppercase">
+                        {starterInfo && (
+                          <span
+                            title={`${starterInfo.role} (Fit ${starterInfo.fitScore.toFixed(1)})`}
+                            className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold text-emerald-300 uppercase"
+                          >
                             <Sparkles className="h-2.5 w-2.5" />
-                            Starter
+                            {starterInfo.shortLabel}
+                          </span>
+                        )}
+                        {isSixthMan && (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-sky-500/15 px-1.5 py-0.5 text-[9px] font-bold text-sky-300 uppercase">
+                            6th Man
                           </span>
                         )}
                       </div>

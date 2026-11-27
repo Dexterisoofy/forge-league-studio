@@ -9,7 +9,8 @@ import type {
 } from '../../types';
 import { createUuid } from '../prng';
 import { BUILT_IN_SPORTS } from '../sports/builtInSports';
-import { getEffectiveTeamRating, isPlayerSuspended } from './suspensionEngine';
+import { selectTeamRotation } from './lineupEngine';
+import { getEffectiveTeamRating } from './suspensionEngine';
 
 export const PRESET_ADVANTAGE_RULES: AdvantageRule[] = [
   {
@@ -528,10 +529,7 @@ export function accumulatePlayerMatchStats(
     teamScore: number,
     oppScore: number
   ) => {
-    const eligibleRoster = team.roster.filter((p) => !isPlayerSuspended(p));
-    const starters = [...eligibleRoster]
-      .sort((a, b) => b.overall - a.overall)
-      .slice(0, Math.max(0, Math.min(sport.activeLineupSize, eligibleRoster.length)));
+    const starters = selectTeamRotation(team, sport).starters.map((s) => s.player);
 
     for (const player of starters) {
       const prev = targetMap[player.id] ?? {
