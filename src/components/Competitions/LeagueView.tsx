@@ -5,6 +5,7 @@ import {
   Flame,
   ListOrdered,
   Play,
+  Shield,
   Trophy,
   Users,
   Zap,
@@ -19,6 +20,7 @@ import { pushCompetitionSnapshot } from '../../engine/simulation/historyEngine';
 import { resolveUserPermissions } from '../../lib/auth-db';
 import type { Competition } from '../../types';
 import { LogoSvg } from '../common/LogoSvg';
+import { CompetitionRostersPanel } from './CompetitionRostersPanel';
 import { SimulationHistoryBar } from './SimulationHistoryBar';
 
 interface LeagueViewProps {
@@ -33,9 +35,10 @@ export const LeagueView: React.FC<LeagueViewProps> = ({ competition, onUpdate })
   const [confirmSeasonSim, setConfirmSeasonSim] = useState(false);
 
   const hasPreseason = competition.matches.some((m) => m.bracket === 'preseason');
-  const [phaseTab, setPhaseTab] = useState<'regular' | 'preseason' | 'leaders'>(
+  const [phaseTab, setPhaseTab] = useState<'regular' | 'preseason' | 'leaders' | 'rosters'>(
     'regular'
   );
+  const [rosterTeamId, setRosterTeamId] = useState<string | null>(null);
   const [scheduleMode, setScheduleMode] = useState<'round' | 'calendar'>('round');
 
   const phaseMatches = useMemo(
@@ -301,6 +304,18 @@ export const LeagueView: React.FC<LeagueViewProps> = ({ competition, onUpdate })
             <Users className="h-3.5 w-3.5" />
             Player Stat Leaders
           </button>
+          <button
+            type="button"
+            onClick={() => setPhaseTab('rosters')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold cursor-pointer ${
+              phaseTab === 'rosters'
+                ? 'bg-emerald-500 text-slate-950 font-bold'
+                : 'bg-slate-800 text-slate-300 hover:text-white'
+            }`}
+          >
+            <Shield className="h-3.5 w-3.5" />
+            Team Rosters ({competition.teams.length})
+          </button>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
@@ -342,7 +357,12 @@ export const LeagueView: React.FC<LeagueViewProps> = ({ competition, onUpdate })
         </div>
       )}
 
-      {phaseTab === 'leaders' ? (
+      {phaseTab === 'rosters' ? (
+        <CompetitionRostersPanel
+          competition={competition}
+          initialTeamId={rosterTeamId}
+        />
+      ) : phaseTab === 'leaders' ? (
         <div className="rounded-2xl border border-slate-800 bg-[#131b2c] p-5 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -532,7 +552,17 @@ export const LeagueView: React.FC<LeagueViewProps> = ({ competition, onUpdate })
                           <div className="flex items-center gap-2.5">
                             <LogoSvg config={team.logo} size={26} />
                             <div>
-                              <div className="font-semibold text-white">{team.name}</div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRosterTeamId(team.id);
+                                  setPhaseTab('rosters');
+                                }}
+                                title="View club roster"
+                                className="font-semibold text-white hover:text-amber-300 hover:underline text-left cursor-pointer"
+                              >
+                                {team.name}
+                              </button>
                               {row.activeAdvantages.length > 0 && (
                                 <div className="mt-0.5 flex flex-wrap gap-1">
                                   {row.activeAdvantages.map((adv, ai) => (

@@ -7,6 +7,7 @@ import {
   Play,
   Sparkles,
   Trophy,
+  Users,
   Zap,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -25,6 +26,7 @@ import { pushCompetitionSnapshot } from '../../engine/simulation/historyEngine';
 import { resolveUserPermissions } from '../../lib/auth-db';
 import type { Competition, CupRound, Match } from '../../types';
 import { LogoSvg } from '../common/LogoSvg';
+import { CompetitionRostersPanel } from './CompetitionRostersPanel';
 import { SimulationHistoryBar } from './SimulationHistoryBar';
 
 interface CupBracketViewProps {
@@ -46,6 +48,7 @@ export const CupBracketView: React.FC<CupBracketViewProps> = ({
   const hasPreseason = competition.matches.some((m) => m.bracket === 'preseason');
 
   const [showPreseason, setShowPreseason] = useState(false);
+  const [showRosters, setShowRosters] = useState(false);
   const [deTab, setDeTab] = useState<'winners' | 'losers' | 'grand-final'>('winners');
   const [gkTab, setGkTab] = useState<'groups' | 'knockout'>(
     competition.knockoutSeeded ? 'knockout' : 'groups'
@@ -518,10 +521,28 @@ export const CupBracketView: React.FC<CupBracketViewProps> = ({
             onUpdate={onUpdate}
             onMessage={showToast}
           />
+          <button
+            type="button"
+            onClick={() => {
+              setShowRosters((v) => !v);
+              setShowPreseason(false);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer ${
+              showRosters
+                ? 'bg-emerald-500 text-slate-950 font-bold'
+                : 'border border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+            }`}
+          >
+            <Users className="h-3.5 w-3.5" />
+            {showRosters ? 'View Bracket' : `Team Rosters (${competition.teams.length})`}
+          </button>
           {hasPreseason && (
             <button
               type="button"
-              onClick={() => setShowPreseason((v) => !v)}
+              onClick={() => {
+                setShowPreseason((v) => !v);
+                setShowRosters(false);
+              }}
               className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold cursor-pointer ${
                 showPreseason
                   ? 'bg-purple-500 text-slate-950 font-bold'
@@ -599,7 +620,9 @@ export const CupBracketView: React.FC<CupBracketViewProps> = ({
         </div>
       )}
 
-      {showPreseason && hasPreseason ? (
+      {showRosters ? (
+        <CompetitionRostersPanel competition={competition} />
+      ) : showPreseason && hasPreseason ? (
         <div className="rounded-2xl border border-slate-800 bg-[#131b2c] p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="font-display text-lg font-bold text-purple-300 uppercase">
